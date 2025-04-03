@@ -2,7 +2,7 @@ import sys
 import os
 from shutil import copyfile, rmtree
 import argparse
-from utils.dataset import DressCodeDataLoader, DressCodeDataset
+from utils.dataset import DressCodeDataLoader, DressCodeDataset, VITONDataLoader, VITONDataset
 sys.path.append(r'../ootd')
 CUDIA_VISIBLE_DEVICES = 0,1
 # models import
@@ -57,12 +57,12 @@ def get_args():
 
     # paths
     parser.add_argument('--dataset_dir', type=str, default='../VITON-HD')
-    parser.add_argument("--vit_path", type=str, default="../models/clip-vit-large-patch14")
-    parser.add_argument("--vae_path", type=str, default="../models/stable-diffusion-v1-5/vae")
-    parser.add_argument("--unet_path", type=str, default="../models/stable-diffusion-v1-5/unet")
-    parser.add_argument("--tokenizer_path", type=str, default="../models/stable-diffusion-v1-5/tokenizer")
-    parser.add_argument("--text_encoder_path", type=str, default="../models/stable-diffusion-v1-5/text_encoder")
-    parser.add_argument("--scheduler_path", type=str, default="../models/stable-diffusion-v1-5/scheduler/scheduler_config.json")
+    parser.add_argument("--vit_path", type=str, default="../checkpoints/clip-vit-large-patch14")
+    parser.add_argument("--vae_path", type=str, default="../checkpoints/stable-diffusion-v1-5/vae")
+    parser.add_argument("--unet_path", type=str, default="../checkpoints/stable-diffusion-v1-5/unet")
+    parser.add_argument("--tokenizer_path", type=str, default="../checkpoints/stable-diffusion-v1-5/tokenizer")
+    parser.add_argument("--text_encoder_path", type=str, default="../checkpoints/stable-diffusion-v1-5/text_encoder")
+    parser.add_argument("--scheduler_path", type=str, default="../checkpoints/stable-diffusion-v1-5/scheduler/scheduler_config.json")
     parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to a checkpoint to resume training.")
     
     
@@ -93,10 +93,16 @@ def get_args():
 args = get_args()
 
 #-----prepare dataset-----
-test_dataset = DressCodeDataset(args, "test")
-test_loader = DressCodeDataLoader(args, test_dataset)
-train_dataset = DressCodeDataset(args, "train")
-train_dataloader =DressCodeDataLoader(args, train_dataset)
+# test_dataset = DressCodeDataset(args, "test") # TODO
+# test_loader = DressCodeDataLoader(args, test_dataset)
+# train_dataset = DressCodeDataset(args, "train")
+# train_dataloader =DressCodeDataLoader(args, train_dataset)
+# train_dataloader = train_dataloader.data_loader
+
+test_dataset = VITONDataset(args, "test") # TODO
+test_loader = VITONDataLoader(args, test_dataset)
+train_dataset = VITONDataset(args, "train")
+train_dataloader =VITONDataLoader(args, train_dataset)
 train_dataloader = train_dataloader.data_loader
 
 #-----load models-----

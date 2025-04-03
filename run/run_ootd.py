@@ -38,13 +38,13 @@ category = args.category # 0:upperbody; 1:lowerbody; 2:dress
 cloth_path = args.cloth_path
 model_path = args.model_path
 
-image_scale = args.scale
+image_scale = args.scale # TODO image_scale -> image_guidance_scale
 n_steps = args.step
 n_samples = args.sample
 seed = args.seed
 
 if model_type == "hd":
-    model = OOTDiffusionHD(args.gpu_id)
+    model = OOTDiffusionHD(args.gpu_id) # TODO 用这个
 elif model_type == "dc":
     model = OOTDiffusionDC(args.gpu_id)
 else:
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     cloth_img = Image.open(cloth_path).resize((768, 1024))
     model_img = Image.open(model_path).resize((768, 1024))
     keypoints = openpose_model(model_img.resize((384, 512)))
-    model_parse, _ = parsing_model(model_img.resize((384, 512)))
+    model_parse, _ = parsing_model(model_img.resize((384, 512))) # TODO check  这是通过keypoints 和 model_parse 自动换装吗
 
     mask, mask_gray = get_mask_location(model_type, category_dict_utils[category], model_parse, keypoints)
     mask = mask.resize((768, 1024), Image.NEAREST)
