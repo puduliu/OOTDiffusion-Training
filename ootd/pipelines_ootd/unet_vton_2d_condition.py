@@ -177,8 +177,8 @@ class UNetVton2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMi
     def __init__(
         self,
         sample_size: Optional[int] = None,
-        in_channels: int = 4,
-        out_channels: int = 4,
+        in_channels: int = 4, # TODO check  因为要增加garment的输入，所以通道数变为8
+        out_channels: int = 4, 
         center_input_sample: bool = False,
         flip_sin_to_cos: bool = True,
         freq_shift: int = 0,
@@ -807,7 +807,7 @@ class UNetVton2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMi
     def forward(
         self,
         sample: torch.FloatTensor,
-        spatial_attn_inputs,
+        spatial_attn_inputs, # TODO check 输入到这边了
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
         class_labels: Optional[torch.Tensor] = None,
@@ -1071,13 +1071,13 @@ class UNetVton2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMi
 
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
-            if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
+            if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention: # cross_attention？
                 # For t2i-adapter CrossAttnDownBlock2D
                 additional_residuals = {}
                 if is_adapter and len(down_intrablock_additional_residuals) > 0:
                     additional_residuals["additional_residuals"] = down_intrablock_additional_residuals.pop(0)
 
-                sample, res_samples, spatial_attn_inputs, spatial_attn_idx = downsample_block(
+                sample, res_samples, spatial_attn_inputs, spatial_attn_idx = downsample_block( # TODO TODO spatial_attn_inputs
                     hidden_states=sample,
                     spatial_attn_inputs=spatial_attn_inputs,
                     spatial_attn_idx=spatial_attn_idx,
@@ -1146,7 +1146,7 @@ class UNetVton2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMi
                 upsample_size = down_block_res_samples[-1].shape[2:]
 
             if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
-                sample, spatial_attn_inputs, spatial_attn_idx = upsample_block(
+                sample, spatial_attn_inputs, spatial_attn_idx = upsample_block( # TODO spatial_attn_inputs
                     hidden_states=sample,
                     spatial_attn_inputs=spatial_attn_inputs,
                     spatial_attn_idx=spatial_attn_idx,

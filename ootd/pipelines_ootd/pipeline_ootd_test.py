@@ -758,7 +758,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                 )
 
             if isinstance(generator, list):
-                image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)] # TODO vae.encode
+                image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)]
                 image_latents = torch.cat(image_latents, dim=0)
             else:
                 image_latents = self.vae.encode(image).latent_dist.mode()

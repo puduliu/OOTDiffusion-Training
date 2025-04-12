@@ -157,7 +157,7 @@ class VITONDataset(data.Dataset):
             with open(caption_path, 'r') as file:
                 caption = file.read()
         else:
-            print("File does not exist. ", caption_name)
+            # print("File does not exist. ", caption_name) # TODO 这个描述是干什么用的，需要吗
             caption = "A cloth"
 
         result = {

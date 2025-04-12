@@ -74,7 +74,6 @@ def preprocess(image):
         image = torch.cat(image, dim=0)
     return image
 
-from run.SimpleLiteUNet import SimpleLiteUNet
 
 class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin):
     r"""
@@ -107,8 +106,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         vae: AutoencoderKL,
         text_encoder: CLIPTextModel,
         tokenizer: CLIPTokenizer,
-        # unet_garm: UNetGarm2DConditionModel,
-        unet_garm: SimpleLiteUNet,
+        unet_garm: UNetGarm2DConditionModel,
         unet_vton: UNetVton2DConditionModel,
         scheduler: KarrasDiffusionSchedulers,
         safety_checker: StableDiffusionSafetyChecker,
@@ -274,15 +272,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         else:
             batch_size = prompt_embeds.shape[0]
 
-        # TODO edit start
-        if not hasattr(self, "_execution_device"):
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            device = self._execution_device
-        # TODO edit end
-
-        # device = self._execution_device
-
+        device = self._execution_device
         # check if scheduler is in sigmas space
         scheduler_is_in_sigma_space = hasattr(self.scheduler, "sigmas")
 
@@ -341,7 +331,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
 
         # 6. Prepare latent variables
         num_channels_latents = self.vae.config.latent_channels
-        latents = self.prepare_latents(
+        latents = self.prepare_latents( # TODO latents 初始化为纯噪声
             batch_size * num_images_per_prompt,
             num_channels_latents,
             height,
@@ -361,39 +351,22 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
 
-        # _, spatial_attn_outputs = self.unet_garm( # TODO what?
-        #     garm_latents,
-        #     0,
-        #     encoder_hidden_states=prompt_embeds,
-        #     return_dict=False,
-        # )
-
-        spatial_attn_outputs = self.unet_garm( # TODO what?
-            garm_latents
+        _, spatial_attn_outputs = self.unet_garm( # TODO what?
+            garm_latents,
+            0,
+            encoder_hidden_states=prompt_embeds,
+            return_dict=False,
         )
-
         
-        # TODO edit start
-        # shapes = [
-        #     (8, 3072, 320), (8, 3072, 320),
-        #     (8, 768, 640), (8, 768, 640),
-        #     (8, 192, 1280), (8, 192, 1280),
-        #     (8, 48, 1280), (8, 192, 1280),
-        #     (8, 192, 1280), (8, 192, 1280),
-        #     (8, 768, 640), (8, 768, 640),
-        #     (8, 768, 640), (8, 3072, 320),
-        #     (8, 3072, 320), (8, 3072, 320)
-        # ]
-
-        # 生成随机初始化的 tensor list
-        # spatial_attn_outputs = [torch.randn(shape, dtype=torch.float16).to(device) for shape in shapes] # TODO 确保 spatial_attn_input 在同一设备
-
-        
-        if isinstance(spatial_attn_outputs, list): # TODO 打印 spatial_attn_outputs,能否轻量化unet
+        if isinstance(spatial_attn_outputs, list):
             print(f"spatial_attn_outputs is a list with {len(spatial_attn_outputs)} elements.")
             for i, tensor in enumerate(spatial_attn_outputs):
+                if isinstance(tensor, torch.Tensor):
                     print(f"Tensor {i}: shape = {tensor.shape}")
-        # TODO edit end
+                else:
+                    print(f"Element {i} is not a tensor, it is {type(tensor)}")
+        else:
+            print(f"spatial_attn_outputs.shape = {spatial_attn_outputs.shape}")
 
 
         with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -402,7 +375,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
 
                 # concat latents, image_latents in the channel dimension
                 scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
+                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1) # TODO 这是将noise 和 mask_vton_input concat输入模型?
                 # latent_vton_model_input = scaled_latent_model_input + vton_latents
 
                 spatial_attn_inputs = spatial_attn_outputs.copy()
@@ -454,7 +427,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                         init_latents_proper, noise, torch.tensor([noise_timestep])
                     )
 
-                latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
+                latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents # TODO check
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
@@ -475,7 +448,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                         callback(step_idx, t, latents)
 
         if not output_type == "latent":
-            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0] # TODO vae.decode
+            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
             image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
         else:
             image = latents
@@ -758,7 +731,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                 )
 
             if isinstance(generator, list):
-                image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)] # TODO vae.encode
+                image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)]
                 image_latents = torch.cat(image_latents, dim=0)
             else:
                 image_latents = self.vae.encode(image).latent_dist.mode()

@@ -4,7 +4,6 @@ from shutil import copyfile, rmtree
 import argparse
 from utils.dataset import DressCodeDataLoader, DressCodeDataset, VITONDataLoader, VITONDataset
 sys.path.append(r'../ootd')
-CUDIA_VISIBLE_DEVICES = 0,1
 # models import
 from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer
 from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
@@ -26,6 +25,7 @@ import logging
 
 import pytorch_lightning as pl
 from VTONModel import VTONModel
+from SimpleLiteUNet import SimpleLiteUNet
 
 #-----args-----
 def get_args():
@@ -62,7 +62,8 @@ def get_args():
     parser.add_argument('--dataset_dir', type=str, default='../VITON-HD')
     parser.add_argument("--vit_path", type=str, default="../checkpoints/clip-vit-large-patch14")
     parser.add_argument("--vae_path", type=str, default="../checkpoints/stable-diffusion-v1-5/vae")
-    parser.add_argument("--unet_path", type=str, default="../checkpoints/stable-diffusion-v1-5/unet")
+    # parser.add_argument("--unet_path", type=str, default="../checkpoints/stable-diffusion-v1-5/unet")
+    parser.add_argument("--unet_path", type=str, default="/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/run/checkpoints/unet_vton")
     parser.add_argument("--tokenizer_path", type=str, default="../checkpoints/stable-diffusion-v1-5/tokenizer")
     parser.add_argument("--text_encoder_path", type=str, default="../checkpoints/stable-diffusion-v1-5/text_encoder")
     parser.add_argument("--scheduler_path", type=str, default="../checkpoints/stable-diffusion-v1-5/scheduler/scheduler_config.json")
@@ -95,13 +96,6 @@ def get_args():
 
 args = get_args()
 
-#-----prepare dataset-----
-# test_dataset = DressCodeDataset(args, "test") # TODO
-# test_loader = DressCodeDataLoader(args, test_dataset)
-# train_dataset = DressCodeDataset(args, "train")
-# train_dataloader =DressCodeDataLoader(args, train_dataset)
-# train_dataloader = train_dataloader.data_loader
-
 test_dataset = VITONDataset(args, "test") # TODO
 test_loader = VITONDataLoader(args, test_dataset)
 train_dataset = VITONDataset(args, "train")
@@ -111,13 +105,16 @@ print("----------------------------------------args.batch_size = ", args.batch_s
 
 #-----load models-----
 vae = AutoencoderKL.from_pretrained(args.vae_path)
-unet_garm = UNetGarm2DConditionModel.from_pretrained(args.unet_path,use_safetensors=True)
+# unet_garm = UNetGarm2DConditionModel.from_pretrained(args.unet_path,use_safetensors=True)
+unet_garm = SimpleLiteUNet()
 unet_vton = UNetVton2DConditionModel.from_pretrained(args.unet_path,use_safetensors=True)
 noise_scheduler = PNDMScheduler.from_pretrained(args.scheduler_path)
 auto_processor = AutoProcessor.from_pretrained(args.vit_path)
 image_encoder = CLIPVisionModelWithProjection.from_pretrained(args.vit_path)
 tokenizer = CLIPTokenizer.from_pretrained(args.tokenizer_path)
 text_encoder = CLIPTextModel.from_pretrained(args.text_encoder_path)
+
+print("===============================Now using in_channels 1111:", unet_vton.conv_in.in_channels)
 
 #-----models configs-----
 # unet_vton(denoising UNet)in_channels=4 --> in_channels=8
@@ -142,12 +139,7 @@ else:
 
 vae_scale_factor = 2 ** (len(vae.config.block_out_channels) - 1)
 image_processor = VaeImageProcessor(vae_scale_factor=vae_scale_factor)
-
-# vae.requires_grad_(False)
-# unet_garm.requires_grad_(True)
-# unet_vton.requires_grad_(True)
-# image_encoder.requires_grad_(False)
-# text_encoder.requires_grad_(False) #TODO configure_optimizers里面设置
+print("===============================Now using in_channels 2222:", unet_vton.conv_in.in_channels)
 
 from pytorch_lightning.callbacks import ModelCheckpoint
 # **保存 Checkpoint（仅保存模型权重，减少显存占用）**
@@ -156,24 +148,18 @@ checkpoint_callback = ModelCheckpoint(
     filename="epoch={epoch}-step={step}-hd",  # 设置保存文件的命名格式
     save_weights_only=True,   # **只保存权重，减少显存占用**   False显存会溢出
     every_n_epochs=1,          # **每 5 个 epoch 保存一次**
-)
+) # TODO ModelCheckpoint 并不会保存 模型结构信息（比如你把 in_channels=4 改成 in_channels=8）
 
-accumulate_grad_batches=16 
+accumulate_grad_batches=1 
 
 # trainer = pl.Trainer(devices=2, strategy="ddp", precision=16, accelerator="gpu", 
 #                      max_epochs=50, callbacks=[checkpoint_callback], accumulate_grad_batches=accumulate_grad_batches)
 
-trainer = pl.Trainer(gpus=3, strategy="ddp_sharded", precision=16, accelerator="gpu", 
-                     max_epochs=20, callbacks=[checkpoint_callback], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+# trainer = pl.Trainer(gpus=2, strategy="ddp_sharded", precision=16, accelerator="gpu", 
+#                      max_epochs=20, callbacks=[checkpoint_callback], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+trainer = pl.Trainer(gpus=2, strategy="ddp_sharded", precision=16, accelerator="gpu", 
+                     max_epochs=20, checkpoint_callback=False, progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
 
-# 设定 GPU 训练
-# trainer = pl.Trainer(
-#     accelerator="gpu", 
-#     devices=2,  # 可改为 `devices=-1` 让 Lightning 自动检测可用 GPU
-#     strategy="ddp",  # 使用分布式数据并行
-#     precision=16,  # 混合精度训练，减少显存占用
-#     max_epochs=50,  # 训练轮数
-# )
 
 # 实例化模型
 model = VTONModel(

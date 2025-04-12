@@ -2,13 +2,12 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
-from safetensors.torch import save_file
 
 class VTONModel(pl.LightningModule):
     # def __init__(self, unet_vton, vae, text_encoder, tokenizer, image_processor, image_encoder, noise_scheduler, auto_processor, 
     #              train_data_loader, learning_rate=1e-4, model_type='hd'):
-    def __init__(self, unet_garm, unet_vton, vae, text_encoder, tokenizer, image_processor, image_encoder, noise_scheduler, auto_processor, 
-                 train_data_loader, learning_rate=1e-4, model_type='hd'):
+    def __init__(self, unet_garm=None, unet_vton=None, vae=None, text_encoder=None, tokenizer=None, image_processor=None, image_encoder=None, noise_scheduler=None, auto_processor=None, 
+                 train_data_loader=None, learning_rate=1e-4, model_type='hd'):
         super().__init__()
         self.unet_garm = unet_garm
         self.unet_vton = unet_vton
@@ -128,37 +127,27 @@ class VTONModel(pl.LightningModule):
     #     torch.save(self.image_encoder.state_dict(), f"{save_dir}/image_encoder.pth")
     #     print("【自动保存】所有子模块已分别保存至 `checkpoints/` 目录")
 
-
-    # def on_save_checkpoint(self, checkpoint):
-    #     save_dir = "checkpoints/"
-    #     torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
-    #     save_file(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.safetensors")
-    #     # torch.save(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.pth")
-    #     print("✅ 已单独保存 unet_garm 和 unet_vton！")
-
-    # def on_save_checkpoint(self, checkpoint):
-    #         # 每 5 个 epoch 保存一次
-    #         if self.current_epoch % 5 == 0:
-    #             save_dir = "checkpoints/"
-    #             torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
-    #             save_file(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.safetensors")
-    #             print(f"✅ 已保存 unet_garm 和 unet_vton 模型，epoch {self.current_epoch}！")
-
-    def on_epoch_end(self):
-            # 每 5 个 epoch 保存一次
-            if self.current_epoch % 5 == 0:
-                save_dir = "checkpoints/"
-                torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
-                save_file(self.unet_vton.state_dict(), f"{save_dir}/unet_vton/unet_vton.safetensors")
-    
-                # 输出信息  
-                message = f"✅ 已保存 unet_garm 和 unet_vton 模型,epoch {self.current_epoch}!\n"  
-                
-                # 将输出写入txt文件  
-                with open(f"{save_dir}/training_log.txt", "a", encoding='utf-8') as log_file:  
-                    log_file.write(message) 
-                print(f"✅ 已保存 unet_garm 和 unet_vton 模型,epoch {self.current_epoch}!")
-
     def train_dataloader(self):
         return self.train_data_loader
+    
+    def get_learned_conditioning(self, c):
+        #c 1,3,224,224 
+        if self.cond_stage_forward is None:
+            # print("---------------------------------------cond_stage_forward is NONE") # #这边有执行到
+            # 如果 cond_stage_model 有 encode() 并且可调用：用 encode(c) 处理 c。
+            # 如果 cond_stage_model 没有 encode()：直接调用 cond_stage_model(c) 处理输入。
+            if hasattr(self.cond_stage_model, 'encode') and callable(self.cond_stage_model.encode):
+                #1,1,1024
+                c = self.cond_stage_model.encode(c) # todo check FrozenDinoV2Encoder? 这边执行到了, c.shape = torch.Size([1, 257, 1024]
+                # print("---------------------------------------cond_stage_model.encode(c), shape = ", c.shape) #这边有执行到
+                if isinstance(c, DiagonalGaussianDistribution):
+                    print("---------------------------------------DiagonalGaussianDistribution")
+                    c = c.mode()
+            else:
+                c = self.cond_stage_model(c)
+        else:
+            print("---------------------------------------cond_stage_forward not NONE")
+            assert hasattr(self.cond_stage_model, self.cond_stage_forward)
+            c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
+        return c
 
