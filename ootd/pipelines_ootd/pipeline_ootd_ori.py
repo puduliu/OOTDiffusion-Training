@@ -368,15 +368,17 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         else:
             print(f"spatial_attn_outputs.shape = {spatial_attn_outputs.shape}")
 
-
+        print("--------------------------------------------------self.do_classifier_free_guidance = ", self.do_classifier_free_guidance)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps): # TODO timesteps
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+                # CFG do_classifier_free_guidance 是一种 在不使用真实分类器的情况下进行条件控制 的方法。同时生成一个“有条件”（比如有 prompt、图像等）和一个“无条件”（不给条件）的预测
 
                 # concat latents, image_latents in the channel dimension
                 scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
                 latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1) # TODO 这是将noise 和 mask_vton_input concat输入模型?
                 # latent_vton_model_input = scaled_latent_model_input + vton_latents
+                # TODO check latent_model_input是噪声吗
 
                 spatial_attn_inputs = spatial_attn_outputs.copy()
 
