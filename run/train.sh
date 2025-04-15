@@ -18,39 +18,23 @@
 #   --scheduler_path "../models/stable-diffusion-v1-5/scheduler/scheduler_config.json" \
 #   --first_epoch 0 \
 
-# CUDA_VISIBLE_DEVICES=4,0 python train_ootd_pl.py \
-#   --model_type "hd" \
-#   --train_epochs 50 \
-#   --batch_size 1 \
-#   --learning_rate 1e-5 \
-#   --conditioning_dropout_prob 0.1 \
-#   --mixed_precision "fp16" \
-#   --img_height 512 \
-#   --img_width 384 \
-#   --num_workers 4 \
-#   --dataset_dir "/media/jqzhu/941A7DD31A7DB33A/lpd/download/VITON-HD" \
-#   --vit_path "../checkpoints/clip-vit-large-patch14" \
-#   --vae_path "../checkpoints/stable-diffusion-v1-5/vae" \
-#   --unet_path "../checkpoints/stable-diffusion-v1-5/unet" \
-#   --tokenizer_path "../checkpoints/stable-diffusion-v1-5/tokenizer" \
-#   --text_encoder_path "../checkpoints/stable-diffusion-v1-5/text_encoder" \
-#   --scheduler_path "../checkpoints/stable-diffusion-v1-5/scheduler/scheduler_config.json" \
-#   --first_epoch 0 \
 
-CUDA_VISIBLE_DEVICES=3,5 python train_ootd_pl.py \
+# TODO 训练的时候是不是得有个全新的unet_path,或者用预训练模型
+  # --unet_path "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd/unet_garm" \
+CUDA_VISIBLE_DEVICES=0 python train_ootd_pl.py \
   --model_type "hd" \
   --train_epochs 50 \
-  --batch_size 1 \
+  --batch_size 2 \
   --learning_rate 1e-5 \
   --conditioning_dropout_prob 0.1 \
   --mixed_precision "fp16" \
   --img_height 512 \
   --img_width 384 \
   --num_workers 4 \
-  --dataset_dir "/media/jqzhu/941A7DD31A7DB33A/lpd/download/VITON-HD" \
+  --dataset_dir "/home/zyserver/work/lpd/download/VITON-HD/zalando-hd-resized" \
   --vit_path "../checkpoints/clip-vit-large-patch14" \
   --vae_path "../checkpoints/stable-diffusion-v1-5/vae" \
-  --unet_path "/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/run/checkpoints/unet_vton" \
+  --unet_path "../checkpoints/stable-diffusion-v1-5/unet" \
   --tokenizer_path "../checkpoints/stable-diffusion-v1-5/tokenizer" \
   --text_encoder_path "../checkpoints/stable-diffusion-v1-5/text_encoder" \
   --scheduler_path "../checkpoints/stable-diffusion-v1-5/scheduler/scheduler_config.json" \

@@ -24,11 +24,17 @@ import torch.nn.functional as F
 from transformers import AutoProcessor, CLIPVisionModelWithProjection
 from transformers import CLIPTextModel, CLIPTokenizer
 
-VIT_PATH = "../checkpoints/clip-vit-large-patch14"
-VAE_PATH = "../checkpoints/ootd"
-# UNET_PATH = "../checkpoints/ootd/ootd_hd/checkpoint-36000"
-UNET_PATH = "./train/checkpoints_hd/epoch_0"
-MODEL_PATH = "../checkpoints/ootd"
+# VIT_PATH = "../checkpoints/clip-vit-large-patch14"
+# VAE_PATH = "../checkpoints/ootd"
+# UNET_PATH = "../checkpoints/ootd_hd"
+# # UNET_PATH = "./train/checkpoints_hd/epoch_0"
+# MODEL_PATH = "../checkpoints/ootd"
+
+VIT_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/clip-vit-large-patch14"
+VAE_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
+UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints"
+# UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd"
+MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
 
 class OOTDiffusionHD:
 

@@ -63,7 +63,7 @@ def get_args():
     parser.add_argument("--vit_path", type=str, default="../checkpoints/clip-vit-large-patch14")
     parser.add_argument("--vae_path", type=str, default="../checkpoints/stable-diffusion-v1-5/vae")
     # parser.add_argument("--unet_path", type=str, default="../checkpoints/stable-diffusion-v1-5/unet")
-    parser.add_argument("--unet_path", type=str, default="/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/run/checkpoints/unet_vton")
+    parser.add_argument("--unet_path", type=str, default="../checkpoints/unet_vton")
     parser.add_argument("--tokenizer_path", type=str, default="../checkpoints/stable-diffusion-v1-5/tokenizer")
     parser.add_argument("--text_encoder_path", type=str, default="../checkpoints/stable-diffusion-v1-5/text_encoder")
     parser.add_argument("--scheduler_path", type=str, default="../checkpoints/stable-diffusion-v1-5/scheduler/scheduler_config.json")
@@ -105,9 +105,14 @@ print("----------------------------------------args.batch_size = ", args.batch_s
 
 #-----load models-----
 vae = AutoencoderKL.from_pretrained(args.vae_path)
+# unet_garm = SimpleLiteUNet()
 # unet_garm = UNetGarm2DConditionModel.from_pretrained(args.unet_path,use_safetensors=True)
-unet_garm = SimpleLiteUNet()
-unet_vton = UNetVton2DConditionModel.from_pretrained(args.unet_path,use_safetensors=True)
+# unet_vton = UNetVton2DConditionModel.from_pretrained(args.unet_path,use_safetensors=True)
+
+# TODO 本来训练都使用 ../checkpoints/stable-diffusion-v1-5/unet  原始的sd1.5的unet.
+unet_garm = UNetGarm2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints/unet_garm",use_safetensors=True)
+unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints/unet_vton",use_safetensors=True)
+
 noise_scheduler = PNDMScheduler.from_pretrained(args.scheduler_path)
 auto_processor = AutoProcessor.from_pretrained(args.vit_path)
 image_encoder = CLIPVisionModelWithProjection.from_pretrained(args.vit_path)
@@ -147,8 +152,12 @@ checkpoint_callback = ModelCheckpoint(
     dirpath="checkpoints",     # 指定模型保存路径
     filename="epoch={epoch}-step={step}-hd",  # 设置保存文件的命名格式
     save_weights_only=True,   # **只保存权重，减少显存占用**   False显存会溢出
-    every_n_epochs=1,          # **每 5 个 epoch 保存一次**
+    every_n_epochs=5,          # **每 5 个 epoch 保存一次**
 ) # TODO ModelCheckpoint 并不会保存 模型结构信息（比如你把 in_channels=4 改成 in_channels=8）
+
+from logger import ImageLogger
+logger_freq = 1000
+logger = ImageLogger(batch_frequency=logger_freq) # TODO 看一下image logger是否适配
 
 accumulate_grad_batches=1 
 
@@ -157,8 +166,8 @@ accumulate_grad_batches=1
 
 # trainer = pl.Trainer(gpus=2, strategy="ddp_sharded", precision=16, accelerator="gpu", 
 #                      max_epochs=20, callbacks=[checkpoint_callback], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
-trainer = pl.Trainer(gpus=2, strategy="ddp_sharded", precision=16, accelerator="gpu", 
-                     max_epochs=20, checkpoint_callback=False, progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu", 
+                     max_epochs=50, checkpoint_callback=False, progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
 
 
 # 实例化模型
