@@ -5,6 +5,10 @@ from torch.utils.data import DataLoader
 from safetensors.torch import save_file
 from datetime import datetime
 from diffusers.utils.torch_utils import randn_tensor
+from diffusers import UniPCMultistepScheduler
+from torchvision.transforms.functional import to_pil_image
+import os
+from tqdm import tqdm
 
 class VTONModel(pl.LightningModule):
     def __init__(self, unet_garm, unet_vton, vae, text_encoder, tokenizer, image_processor, image_encoder, noise_scheduler, auto_processor, 
@@ -69,7 +73,8 @@ class VTONModel(pl.LightningModule):
         image_latents_garm = self.vae.encode(image_garm).latent_dist.mode() #  vae需要输入的宽高是 8 的倍数
         # print("-----------------------------------------image_latents_garm.shape = ", image_latents_garm.shape) # torch.Size([1, 4, 64, 48])
         image_latents_vton = self.vae.encode(image_vton).latent_dist.mode()
-        latent_vton_model_input = torch.cat([noisy_latents, image_latents_vton], dim=1)
+        latent_vton_model_input = torch.cat([noisy_latents, image_latents_vton], dim=1) 
+        # TODO check 为什么这两个要cat起来，不应该跟纯噪声cat? noisy_latents是纯噪声吗
 
         with torch.cuda.amp.autocast(): 
                
@@ -125,16 +130,20 @@ class VTONModel(pl.LightningModule):
 
 
     @torch.no_grad()
-    def log_images(self, batch, N=4, n_row=2, sample=False, ddim_steps=50, ddim_eta=0.0, return_keys=None,
-                   quantize_denoised=True, inpaint=True, plot_denoise_rows=False, plot_progressive_rows=True,
-                   plot_diffusion_rows=False, unconditional_guidance_scale=9.0, unconditional_guidance_label=None,
-                   use_ema_scope=True,
-                   **kwargs):
+    def log_images(self, batch, **kwargs):
         
-        image_garm = batch['img_garm'].to(self.device)
-        image_vton = batch['img_vton'].to(self.device)
-        image_ori = batch['img_ori'].to(self.device)
+        image_garm = batch['img_garm'].to(self.device) # TODO 要换的衣服
+        image_vton = batch['img_vton'].to(self.device) # TODO 对模特衣服进行mask后的目标图像
+        image_ori = batch['img_ori'].to(self.device) # TODO 原图
         prompt = batch["prompt"]
+        
+        # 保存图片以便可视化
+        save_dir = "./debug_images"
+        os.makedirs(save_dir, exist_ok=True)
+        for i in range(image_garm.size(0)):
+            to_pil_image(image_garm[i].cpu()).save(os.path.join(save_dir, f"batch_garm.png"))
+            to_pil_image(image_vton[i].cpu()).save(os.path.join(save_dir, f"batch_vton.png"))
+            to_pil_image(image_ori[i].cpu()).save(os.path.join(save_dir, f"batch_ori.png"))
 
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
@@ -149,105 +158,153 @@ class VTONModel(pl.LightningModule):
         else:
             raise ValueError("model_type must be 'hd' or 'dc'!")
 
-        prompt_embeds = prompt_embeds.to(self.device)
+        # TODO 参数设置
+        num_images_per_prompt = 1 # TODO 每个prompt生成一张图像就好
+        do_classifier_free_guidance = True
+
+
+        # prompt_embeds = prompt_embeds.to(self.device)
+        prompt_embeds = prompt_embeds.to(dtype=self.text_encoder.dtype, device=device)
+        # print("-------------------------------------------_encode_prompt prompt_embeds.shape111111 = ", prompt_embeds.shape)
+        bs_embed, seq_len, _ = prompt_embeds.shape
+        # duplicate text embeddings for each generation per prompt, using mps friendly method
+        prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1) # TODO num_images_per_prompt = 1的情况下，prompt_embeds.shape 不会有任何变化
+        prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        # print("-------------------------------------------_encode_prompt prompt_embeds.shape222222 = ", prompt_embeds.shape)
+        if do_classifier_free_guidance: # TODO 有执行到
+            prompt_embeds = torch.cat([prompt_embeds, prompt_embeds])
 
         # 预处理图片
         image_garm = self.image_processor.preprocess(image_garm)
         image_vton = self.image_processor.preprocess(image_vton)
-        image_ori = self.image_processor.preprocess(image_ori)
+        image_ori = self.image_processor.preprocess(image_ori) # TODO check这个做了mask没
+    
 
         #TODO start
         
         num_inference_steps =  20
         # 4. set timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
-        timesteps = self.scheduler.timesteps
-
+        MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
+        scheduler = UniPCMultistepScheduler.from_pretrained(MODEL_PATH, subfolder="scheduler")
+        scheduler.set_timesteps(num_inference_steps, device=self.device)
+        timesteps = scheduler.timesteps
+        
+        
         garm_latents = self.vae.encode(image_garm).latent_dist.mode() #  vae需要输入的宽高是 8 的倍数
         vton_latents = self.vae.encode(image_vton).latent_dist.mode()
+        image_ori_latents = self.vae.encode(image_ori).latent_dist.mode() # TODO 不应该训练的时候是GT才好训练吗，如何训练, todo check
+
+        image_garm = image_garm.to(device=self.device, dtype=prompt_embeds.dtype)
+        garm_latents = self.vae.encode(image_garm).latent_dist.mode()
+        garm_latents = torch.cat([garm_latents], dim=0)
+        if self.do_classifier_free_guidance:
+            uncond_garm_latents = torch.zeros_like(garm_latents)
+            garm_latents = torch.cat([garm_latents, uncond_garm_latents], dim=0) # TODO cat uncond_image_latents
+
+        image_vton = image_vton.to(device=self.device, dtype=prompt_embeds.dtype)
+        image_ori = image_ori.to(device=self.device, dtype=prompt_embeds.dtype)
+        vton_latents = self.vae.encode(image_vton).latent_dist.mode()
         image_ori_latents = self.vae.encode(image_ori).latent_dist.mode()
+        vton_latents = torch.cat([vton_latents], dim=0)
+        image_ori_latents = torch.cat([image_ori_latents], dim=0)
+        if self.do_classifier_free_guidance:
+            vton_latents = torch.cat([vton_latents] * 2, dim=0) # TODO 这个直接 * 2?
+
+        # TODO check 确认下是否影响重建
+
+        # TODO 试试重建的效果
+        print("-------------------------------------------self.vae.config.scaling_factor = ", self.vae.config.scaling_factor)
+        log = dict() # TODO check 要返回什么, image是什么类型
+        # image_ori_decode = self.vae.decode(image_ori_latents / self.vae.config.scaling_factor, return_dict=False)[0] # TODO vae.decode
+        # TODO 不用除以 self.vae.config.scaling_factor  可视化效果是好的,check下为什么要除。但是最后输出的要除
+        image_ori_decode = self.vae.decode(image_ori_latents, return_dict=False)[0] # TODO vae.decode
+        # TODO check为什么重建的时候效果也不好
+        log["rescontruction"] = image_ori_decode #重建看看ori图像，按道理训练的时候应该是要匹配的?
+
+        image_vton_decode = self.vae.decode(garm_latents, return_dict=False)[0] # TODO vae.decode
+        # TODO check为什么重建的时候效果也不好
+        log["condition"] = image_vton_decode #重建看看ori图像，按道理训练的时候应该是要匹配的?
         
         batch_size = vton_latents.shape[0]
         height, width = vton_latents.shape[-2:] # height =  64 ----width =  48
-        print("-----------------------------------batch_size = ",batch_size, "----height = ", height, "----width = ", width)
+        # print("-----------------------------------batch_size = ",batch_size, "----height = ", height, "----width = ", width)
         vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         height = height * vae_scale_factor
         width = width * vae_scale_factor # height =  512 ----width =  384
-        print("-----------------------------------batch_size = ",batch_size, "----height = ", height, "----width = ", width)
+        # print("-----------------------------------batch_size = ",batch_size, "----height = ", height, "----width = ", width)
         
 
         # 6. Prepare latent variables
         num_channels_latents = self.vae.config.latent_channels
-        num_images_per_prompt = 4 # TODO check
         seed = 1 # TODO check干啥用的
         generator = torch.manual_seed(seed)
-        prompt_embeds.dtype = torch.float16
         
         shape = (batch_size, num_channels_latents, height // vae_scale_factor, width // vae_scale_factor)
-        latents = randn_tensor(shape, generator=generator, device=self.device, dtype=prompt_embeds.dtype)
-        latents = latents * self.scheduler.init_noise_sigma
+        latents = randn_tensor(shape, generator=generator, device=self.device, dtype=torch.float32) # TODO 使用torch.float16
+        latents = latents * scheduler.init_noise_sigma
 
         noise = latents.clone()
         
-        _, spatial_attn_outputs = self.unet_garm(
+        _, spatial_attn_outputs = self.unet_garm( # TODO float32的模型
                 garm_latents, 0, encoder_hidden_states=prompt_embeds, return_dict=False
             )
 
-        with self.progress_bar(total=20) as progress_bar:
-            for i, t in enumerate(timesteps): # TODO timesteps
-                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+        image_guidance_scale = 2.0 # TODO edit
+        # with self.progress_bar(total=20) as progress_bar:
+        #     for i, t in enumerate(timesteps): # TODO timesteps
+        
+        for i, t in enumerate(tqdm(timesteps, desc="Sampling", total=num_inference_steps)):
+            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            print ("-----t = ", t,"--------timesteps = ", timesteps,"----latent_model_input.shape = ", latent_model_input.shape)
+            # concat latents, image_latents in the channel dimension
+            scaled_latent_model_input = scheduler.scale_model_input(latent_model_input, t)
+            # print("----vton_latents.shape = ", vton_latents.shape,"--scaled_latent_model_input.shape = ", scaled_latent_model_input.shape)
+            latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
 
-                # concat latents, image_latents in the channel dimension
-                scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
+            spatial_attn_inputs = spatial_attn_outputs.copy()
 
-                spatial_attn_inputs = spatial_attn_outputs.copy()
+            noise_pred = self.unet_vton( 
+                latent_vton_model_input, # TODO 输入?
+                spatial_attn_inputs,
+                t,
+                encoder_hidden_states=prompt_embeds,
+                return_dict=False,
+            )[0]
 
-                noise_pred = self.unet_vton( 
-                    latent_vton_model_input, # TODO 输入?
-                    spatial_attn_inputs,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                    return_dict=False,
-                )[0]
-
-                print("-------------------------------------do_classifier_free_guidance")
+            # print("-------------------------------------do_classifier_free_guidance")
+            # perform guidance
+            if  do_classifier_free_guidance:
                 noise_pred_text_image, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = (
                     noise_pred_text
-                    + self.image_guidance_scale * (noise_pred_text_image - noise_pred_text)
+                    + image_guidance_scale * (noise_pred_text_image - noise_pred_text)
                 )
 
 
-                # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+            # compute the previous noisy sample x_t -> x_t-1
+            latents = scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-                init_latents_proper = image_ori_latents * self.vae.config.scaling_factor
+            init_latents_proper = image_ori_latents * self.vae.config.scaling_factor
 
-                # repainting
-                if i < len(timesteps) - 1:
-                    noise_timestep = timesteps[i + 1]
-                    init_latents_proper = self.scheduler.add_noise(
-                        init_latents_proper, noise, torch.tensor([noise_timestep])
-                    )
+            # repainting
+            if i < len(timesteps) - 1:
+                noise_timestep = timesteps[i + 1]
+                init_latents_proper = scheduler.add_noise(
+                    init_latents_proper, noise, torch.tensor([noise_timestep])
+                )
 
-                latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
+            # latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
+            # TODO 我没有mask, 直接latents生成看下是否可行
 
-                progress_bar.update()
+            # progress_bar.update()
 
         image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0] # TODO vae.decode
-        image, has_nsfw_concept = self.run_safety_checker(image, self.device, prompt_embeds.dtype)
+        
+        # do_denormalize = [True] * image.shape[0]
+        # image = self.image_processor.postprocess(image, output_type="pil", do_denormalize=do_denormalize)
+        # TODO check能否自动放到logger处理
 
-        if has_nsfw_concept is None:
-            do_denormalize = [True] * image.shape[0]
-        else:
-            do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
-
-        image = self.image_processor.postprocess(image, output_type="latent", do_denormalize=do_denormalize)
-
-        return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept) 
-
-        log = dict()
+        log["images"] = image
         return log
 
     
