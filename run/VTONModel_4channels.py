@@ -64,7 +64,7 @@ class VTONModel(pl.LightningModule):
         # TODO 这是用image_ori?,为什么不用image_vton
 
         # 添加噪声
-        noise = torch.randn_like(latents)
+        noise = torch.randn_like(latents) # TODO 创建一个 形状与 latents 相同的张量
         timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=self.device)
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
         # TODO 用随机的 t 训练模型去预测对应步长的噪声。add_noise 会按 根号αt x0 + 根号(1−αt) ϵ  的公式合成 xt
@@ -72,11 +72,12 @@ class VTONModel(pl.LightningModule):
         # 服装和试穿图片的潜变量
         # print("-----------------------------------------image_garm.shape = ", image_garm.shape) # torch.Size([1, 3, 512, 384])
         # TODO Stable Diffusion 使用的 VAE 会 将原始输入图像压缩到 1/8 的大小
+        # TODO 使用.sample() 泛化性是不是更好
         image_latents_garm = self.vae.encode(image_garm).latent_dist.mode() #  vae需要输入的宽高是 8 的倍数
         # print("-----------------------------------------image_latents_garm.shape = ", image_latents_garm.shape) # torch.Size([1, 4, 64, 48])
         image_latents_vton = self.vae.encode(image_vton).latent_dist.mode()
-        # latent_vton_model_input = noisy_latents + image_latents_vton
-        latent_vton_model_input = torch.cat([noisy_latents, image_latents_vton], dim=1) 
+        latent_vton_model_input = noisy_latents + image_latents_vton
+        # latent_vton_model_input = torch.cat([noisy_latents, image_latents_vton], dim=1) 
         # TODO check 为什么这两个要cat起来，不应该跟纯噪声cat? noisy_latents是纯噪声吗
 
         with torch.cuda.amp.autocast(): 
@@ -91,7 +92,7 @@ class VTONModel(pl.LightningModule):
                 latent_vton_model_input, spatial_attn_outputs.copy(), timesteps, encoder_hidden_states=prompt_embeds, return_dict=False
             )[0]  
 
-            # 计算损失
+            # 计算损失     noise_pred 是t步模型预测的噪声，它的目标是去预测我们在 add_noise 中加进去的 noise
             loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
 
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
@@ -100,8 +101,8 @@ class VTONModel(pl.LightningModule):
     def configure_optimizers(self):
         print("------------------------------------------configure_optimizers!!!!!!============================")
         optimizer = torch.optim.AdamW(
-            # list(self.unet_garm.parameters()) + list(self.unet_vton.parameters()),  # 只优化这两个模块, 优化两个模块爆显存
-            list(self.unet_vton.parameters()),  # TODO 只训练unet_vton，大概 45G, batch size = 1的情况下
+            # list(self.unet_garm.parameters()) + list(self.unet_vton.parameters()),  # 只优化这两个模块
+            list(self.unet_vton.parameters()),  # TODO 只训练unet_vton试试?
             lr=self.learning_rate,
             weight_decay=1e-4  # 适当加一点 L2 正则化
         )
@@ -113,7 +114,7 @@ class VTONModel(pl.LightningModule):
             # 每 5 个 epoch 保存一次
             if (self.current_epoch  + 1) % 2 == 0:
                 # save_dir = "checkpoints"
-                save_dir = "train"
+                save_dir = "train_4channel"
                 # torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
                 save_file(self.unet_vton.state_dict(), f"{save_dir}/unet_vton/unet_vton.safetensors")
 
@@ -141,12 +142,12 @@ class VTONModel(pl.LightningModule):
         prompt = batch["prompt"]
         
         # 保存图片以便可视化
-        save_dir = "./debug_images"
-        os.makedirs(save_dir, exist_ok=True)
-        for i in range(image_garm.size(0)):
-            to_pil_image(image_garm[i].cpu()).save(os.path.join(save_dir, f"batch_garm.png"))
-            to_pil_image(image_vton[i].cpu()).save(os.path.join(save_dir, f"batch_vton.png"))
-            to_pil_image(image_ori[i].cpu()).save(os.path.join(save_dir, f"batch_ori.png"))
+        # save_dir = "./debug_images"
+        # os.makedirs(save_dir, exist_ok=True)
+        # for i in range(image_garm.size(0)):
+        #     to_pil_image(image_garm[i].cpu()).save(os.path.join(save_dir, f"batch_garm.png"))
+        #     to_pil_image(image_vton[i].cpu()).save(os.path.join(save_dir, f"batch_vton.png"))
+        #     to_pil_image(image_ori[i].cpu()).save(os.path.join(save_dir, f"batch_ori.png"))
 
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
@@ -250,7 +251,7 @@ class VTONModel(pl.LightningModule):
         latents = randn_tensor(shape, generator=generator, device=self.device, dtype=torch.float32) # TODO 使用torch.float16
         latents = latents * scheduler.init_noise_sigma
         print ("==============================================latents.shape = ", latents.shape)
-
+        # TODO 用一个随机的高斯噪声图像作为输入，相当于扩散过程的最后一步 $x_T$。与训练的时候不同
         noise = latents.clone()
         
         _, spatial_attn_outputs = self.unet_garm( # TODO float32的模型
@@ -264,8 +265,8 @@ class VTONModel(pl.LightningModule):
             scaled_latent_model_input = scheduler.scale_model_input(latent_model_input, t)
             # print("----vton_latents.shape = ", vton_latents.shape,"--scaled_latent_model_input.shape = ", scaled_latent_model_input.shape)
             # vton_latents.shape要等于scaled_latent_model_input.shape，如果num_images_per_prompt = 1, 均为[batchsize*num, 4, 64, 48]
-            latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
-            # latent_vton_model_input = scaled_latent_model_input + vton_latents
+            # latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
+            latent_vton_model_input = scaled_latent_model_input + vton_latents
 
             spatial_attn_inputs = spatial_attn_outputs.copy()
 
@@ -290,7 +291,7 @@ class VTONModel(pl.LightningModule):
             # compute the previous noisy sample x_t -> x_t-1
             latents = scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-            init_latents_proper = image_ori_latents * self.vae.config.scaling_factor
+            init_latents_proper = image_ori_latents * self.vae.config.scaling_factor # TODO 这边要用到image_ori_latents信息吗，配合mask?
 
             # repainting
             if i < len(timesteps) - 1:
@@ -298,11 +299,6 @@ class VTONModel(pl.LightningModule):
                 init_latents_proper = scheduler.add_noise(
                     init_latents_proper, noise, torch.tensor([noise_timestep])
                 )
-
-            # latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
-            # TODO 我没有mask, 直接latents生成看下是否可行
-
-            # progress_bar.update()
 
         image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0] # TODO vae.decode
         

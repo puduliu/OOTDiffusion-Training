@@ -100,8 +100,8 @@ class VTONModel(pl.LightningModule):
     def configure_optimizers(self):
         print("------------------------------------------configure_optimizers!!!!!!============================")
         optimizer = torch.optim.AdamW(
-            # list(self.unet_garm.parameters()) + list(self.unet_vton.parameters()),  # 只优化这两个模块, 优化两个模块爆显存
-            list(self.unet_vton.parameters()),  # TODO 只训练unet_vton，大概 45G, batch size = 1的情况下
+            # list(self.unet_garm.parameters()) + list(self.unet_vton.parameters()),  # 只优化这两个模块
+            list(self.unet_vton.parameters()),  # TODO 只训练unet_vton试试?
             lr=self.learning_rate,
             weight_decay=1e-4  # 适当加一点 L2 正则化
         )

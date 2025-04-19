@@ -52,7 +52,7 @@ class ImageLogger(Callback):
                 pl_module.eval()
 
             with torch.no_grad():
-                images = pl_module.log_images(batch, split=split, **self.log_images_kwargs)
+                images = pl_module.log_images(batch, split=split, **self.log_images_kwargs)  # TODO 这边去记录图像
 
             for k in images:
                 N = min(images[k].shape[0], self.max_images)

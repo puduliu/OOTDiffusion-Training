@@ -74,7 +74,6 @@ def preprocess(image):
         image = torch.cat(image, dim=0)
     return image
 
-from run.SimpleLiteUNet import SimpleLiteUNet
 
 class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin):
     r"""
@@ -107,8 +106,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         vae: AutoencoderKL,
         text_encoder: CLIPTextModel,
         tokenizer: CLIPTokenizer,
-        # unet_garm: UNetGarm2DConditionModel,
-        unet_garm: SimpleLiteUNet,
+        unet_garm: UNetGarm2DConditionModel,
         unet_vton: UNetVton2DConditionModel,
         scheduler: KarrasDiffusionSchedulers,
         safety_checker: StableDiffusionSafetyChecker,
@@ -274,21 +272,12 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         else:
             batch_size = prompt_embeds.shape[0]
 
-        # TODO edit start
-        if not hasattr(self, "_execution_device"):
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            device = self._execution_device
-        # TODO edit end
-
-        # device = self._execution_device
-
+        device = self._execution_device
         # check if scheduler is in sigmas space
         scheduler_is_in_sigma_space = hasattr(self.scheduler, "sigmas")
-        print("=======================================prompt_embeds.dtype1 = ", prompt_embeds.dtype)
 
         # 2. Encode input prompt
-        prompt_embeds = self._encode_prompt( # TODO为什么要再encode一下
+        prompt_embeds = self._encode_prompt(
             prompt,
             device,
             num_images_per_prompt,
@@ -296,43 +285,24 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
             negative_prompt,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
-        ) # TODO 跟 num_images_per_prompt有关联?
-
-        # prompt_embeds = prompt_embeds.to(dtype=torch.float16, device=device)
-        
-        # print("=======================================prompt_embeds.dtype1 = ", prompt_embeds.dtype)
-        
-        # prompt_embeds torch.Size([8, 2, 768])
-        print("----------------------------------------------prompt_embeds.shape = ", prompt_embeds.shape)
+        )
 
         # 3. Preprocess image
         image_garm = self.image_processor.preprocess(image_garm)
         image_vton = self.image_processor.preprocess(image_vton)
-        image_ori = self.image_processor.preprocess(image_ori) #torch.Size([1, 3, 512, 384])
-        print("-------------------------------------image_ori.shape = ", image_ori.shape)
-        
-        # # TODO 单纯测试一下
-        # image_ori = image_ori.to(device=device, dtype=prompt_embeds.dtype)
-        # image_ori_encode = self.vae.encode(image_ori).latent_dist.mode()
-        # # TODO 都是1通道
-        # print("------------------------------------!!!!image_ori_encode.shape = ", image_ori_encode.shape) # torch.Size([1, 4, 64, 48])
-        # image_ori_decode = self.vae.decode(image_ori_encode / self.vae.config.scaling_factor, return_dict=False)[0]
-        # print("------------------------------------!!!!image_ori_encode.shape = ", image_ori_decode.shape) # torch.Size([1, 3, 512, 384])
-
-        
+        image_ori = self.image_processor.preprocess(image_ori)
         mask = np.array(mask)
         mask[mask < 127] = 0
         mask[mask >= 127] = 255
         mask = torch.tensor(mask)
         mask = mask / 255
         mask = mask.reshape(-1, 1, mask.size(-2), mask.size(-1))
-        print("-----------------------------------------------------num_inference_steps = ", num_inference_steps)
+
         # 4. set timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = self.scheduler.timesteps
-        
 
-        # TODO 5. Prepare Image latents
+        # 5. Prepare Image latents
         garm_latents = self.prepare_garm_latents(
             image_garm,
             batch_size,
@@ -343,8 +313,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
             generator,
         )
 
-        # TODO check，为什么要把通道数变为4?想生成多个不同的结果（不同 seed、不同 noise、不同风格等）?支持 classifier-free guidance（两倍扩展）?
-        vton_latents, mask_latents, image_ori_latents = self.prepare_vton_latents( 
+        vton_latents, mask_latents, image_ori_latents = self.prepare_vton_latents(
             image_vton,
             mask,
             image_ori,
@@ -355,41 +324,15 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
             self.do_classifier_free_guidance,
             generator,
         )
-        
-        print("111111111111111111-------------------------garm_latents.shape = ", garm_latents.shape # torch.Size([8, 4, 64, 48])
-              , "-----vton_latents.shape = ", vton_latents.shape
-              , "-----image_ori_latents.shape = ", image_ori_latents.shape
-              , "-----mask_latents.shape = ", mask_latents.shape)
-        
-        # TODO edit start
-        # image_garm = image_garm.to(device=device, dtype=prompt_embeds.dtype)
-        # image_vton = image_vton.to(device=device, dtype=prompt_embeds.dtype)
-        # image_ori = image_ori.to(device=device, dtype=prompt_embeds.dtype)
-        # mask = mask.to(device=device, dtype=prompt_embeds.dtype)
-        # garm_latents = self.vae.encode(image_garm).latent_dist.mode() #  ======vae
-        # vton_latents = self.vae.encode(image_vton).latent_dist.mode()
-        # image_ori_latents = self.vae.encode(image_ori).latent_dist.mode() # TODO 不应该训练的时候是GT才好训练吗，如何训练, todo check
-        # # mask_latents = self.vae.encode(mask).latent_dist.mode()
-        
-        # print("222222222222222222-------------------------garm_latents.shape = ", garm_latents.shape # TODO  torch.Size([1, 4, 64, 48])
-        #       , "-----vton_latents.shape = ", vton_latents.shape
-        #       , "-----image_ori_latents.shape = ", image_ori_latents.shape
-        #       , "-----mask_latents.shape = ", mask_latents.shape)
-        
-        # TODO 测试保存一下
-        image_ori_test = self.vae.decode(image_ori_latents / self.vae.config.scaling_factor, return_dict=False)[0] 
-        print("-------------------------image_ori_test.shape = ", image_ori_test.shape)
 
         height, width = vton_latents.shape[-2:]
-        print("-----------------------------------batch_size = ",batch_size, "----height = ", height, "----width = ", width)
         height = height * self.vae_scale_factor
         width = width * self.vae_scale_factor
-        print("-----------------------------------batch_size = ",batch_size, "----height = ", height, "----width = ", width)
 
         # 6. Prepare latent variables
         num_channels_latents = self.vae.config.latent_channels
-        latents = self.prepare_latents(
-            batch_size * num_images_per_prompt, # batch_size * num_images_per_prompt, batch_size * 1,
+        latents = self.prepare_latents( # TODO latents 初始化为纯噪声
+            batch_size * num_images_per_prompt,
             num_channels_latents,
             height,
             width,
@@ -398,9 +341,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
             generator,
             latents,
         )
-        print("--------------------------------generator = ", generator, "----prompt_embeds.dtype = ", prompt_embeds.dtype)
-        print("--------------------------------num_images_per_prompt = ",num_images_per_prompt,"----batch_size = ", batch_size)
-        # batch_size = 1
+
         noise = latents.clone()
 
         # 8. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
@@ -409,8 +350,6 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         # 9. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
-        print("###############################################garm_latents.shape = ", garm_latents.shape, "------prompt_embeds.shape = ", prompt_embeds.shape)
-        # torch.Size([8, 4, 64, 48]) ------prompt_embeds.shape =  torch.Size([1, 2, 768])
 
         _, spatial_attn_outputs = self.unet_garm( # TODO what?
             garm_latents,
@@ -418,36 +357,31 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
             encoder_hidden_states=prompt_embeds,
             return_dict=False,
         )
+        
+        if isinstance(spatial_attn_outputs, list):
+            print(f"spatial_attn_outputs is a list with {len(spatial_attn_outputs)} elements.")
+            for i, tensor in enumerate(spatial_attn_outputs):
+                if isinstance(tensor, torch.Tensor):
+                    print(f"Tensor {i}: shape = {tensor.shape}")
+                else:
+                    print(f"Element {i} is not a tensor, it is {type(tensor)}")
+        else:
+            print(f"spatial_attn_outputs.shape = {spatial_attn_outputs.shape}")
 
-
-        
-        # TODO 测试下这个shedule 有什么不同吗
-        # self._image_guidance_scale = 0.9
-        num_inference_steps =  20
-        MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
-        from diffusers import UniPCMultistepScheduler
-        self.scheduler = UniPCMultistepScheduler.from_pretrained(MODEL_PATH, subfolder="scheduler")
-        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
-        timesteps = self.scheduler.timesteps # TODO 好像值是一样的
-        print("==========================================timesteps = ", timesteps) #打印出来一样的呀
-        
-        print("---------------------------------do_classifier_free_guidance = ", self.do_classifier_free_guidance)
-        print("---------------------------------self.image_guidance_scale = ", self.image_guidance_scale)
-        print("---------------------------------latents.shape = ", latents.shape)
-        
+        print("--------------------------------------------------self.do_classifier_free_guidance = ", self.do_classifier_free_guidance)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps): # TODO timesteps
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
-                # print ("-----t = ", t,"--------timesteps = ", timesteps,"----latent_model_input.shape = ", latent_model_input.shape)
+                # CFG do_classifier_free_guidance 是一种 在不使用真实分类器的情况下进行条件控制 的方法。同时生成一个“有条件”（比如有 prompt、图像等）和一个“无条件”（不给条件）的预测
+
                 # concat latents, image_latents in the channel dimension
                 scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-                print("------scaled_latent_model_input.shape = ",scaled_latent_model_input.shape, "vton_latents.shape = ", vton_latents.shape)
-                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
+                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1) # TODO 这是将noise 和 mask_vton_input concat输入模型?
                 # latent_vton_model_input = scaled_latent_model_input + vton_latents
+                # TODO check latent_model_input是噪声吗
 
                 spatial_attn_inputs = spatial_attn_outputs.copy()
-                # prompt_embeds.shape = torch.Size([8, 2, 768])
-                # print("----------------------------------------------prompt_embeds.shape = ", prompt_embeds.shape)
+
                 # predict the noise residual
                 noise_pred = self.unet_vton( 
                     latent_vton_model_input, # TODO 输入?
@@ -462,14 +396,12 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                 # predicted_original_sample instead of the noise_pred. So we need to compute the
                 # predicted_original_sample here if we are using a karras style scheduler.
                 if scheduler_is_in_sigma_space:
-                    # print("-------------------------------------scheduler_is_in_sigma_space1")
                     step_index = (self.scheduler.timesteps == t).nonzero()[0].item()
                     sigma = self.scheduler.sigmas[step_index]
                     noise_pred = latent_model_input - sigma * noise_pred
 
                 # perform guidance
-                if self.do_classifier_free_guidance: # 有执行到,到底测试的时候要不要用到呢
-                    # print("-------------------------------------do_classifier_free_guidance")
+                if self.do_classifier_free_guidance:
                     noise_pred_text_image, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = (
                         noise_pred_text
@@ -483,36 +415,24 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                 # need to overwrite the noise_pred here such that the value of the computed
                 # predicted_original_sample is correct.
                 if scheduler_is_in_sigma_space:
-                    # print("-------------------------------------scheduler_is_in_sigma_space2")
                     noise_pred = (noise_pred - latents) / (-sigma)
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
-                # print("----------------------------------------latents.dtype1 = ", latents.dtype) # TODO torch.float16
+
                 init_latents_proper = image_ori_latents * self.vae.config.scaling_factor
-                # print("----------------------------------------init_latents_proper.dtype2 = ", init_latents_proper.dtype) 
-                # TODO torch.float16
+
                 # repainting
                 if i < len(timesteps) - 1:
                     noise_timestep = timesteps[i + 1]
                     init_latents_proper = self.scheduler.add_noise(
                         init_latents_proper, noise, torch.tensor([noise_timestep])
                     )
-                # print("----------------------------------------!!!!mask_latents.dtype = ", mask_latents.dtype)
-                # latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents #TODO 先不用mask试试
-                
-                # TODO test
-                # from torchvision.transforms.functional import to_pil_image
-                # import os
-                # image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
-                # print("----------------------------------------!!!!latents.dtype = ", latents.dtype)
-                # save_dir = "./debug_images"
-                # os.makedirs(save_dir, exist_ok=True)
-                # for i in range(image.size(0)):
-                #     to_pil_image(image[i].cpu()).save(os.path.join(save_dir, f"image_decode.png"))
+
+                latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents 
+                # TODO check 为什么训练的时候没有用到mask，是不是数据集加载的时候已经处理好了
 
                 if callback_on_step_end is not None:
-                    print("-------------------------------------callback_on_step_end is not None")
                     callback_kwargs = {}
                     for k in callback_on_step_end_tensor_inputs:
                         callback_kwargs[k] = locals()[k]
@@ -524,41 +444,32 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                     vton_latents = callback_outputs.pop("vton_latents", vton_latents)
 
                 # call the callback, if provided
-                # if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                #     progress_bar.update() # TODO 执行
-                #     # print("-------------------------------------progress_bar.update()")
-                #     if callback is not None and i % callback_steps == 0: # TODO 没有执行
-                #         # print("-------------------------------------callback is not None")
-                #         step_idx = i // getattr(self.scheduler, "order", 1)
-                #         callback(step_idx, t, latents)
+                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                    progress_bar.update()
+                    if callback is not None and i % callback_steps == 0:
+                        step_idx = i // getattr(self.scheduler, "order", 1)
+                        callback(step_idx, t, latents)
 
-        if not output_type == "latent": # TODO 走这个分支
-            print("------------------------------------output_type latent")
-            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0] # TODO vae.decode
+        if not output_type == "latent":
+            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
             image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
         else:
-            print("------------------------------------output_type not latent")
             image = latents
             has_nsfw_concept = None
 
         if has_nsfw_concept is None:
-            print("------------------------------------has_nsfw_concept is None")
             do_denormalize = [True] * image.shape[0]
         else:
-            print("------------------------------------has_nsfw_concept not None")
             do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
 
-        print("----------------------------------------output_type = ", output_type, "----do_denormalize = ", do_denormalize)
         image = self.image_processor.postprocess(image, output_type=output_type, do_denormalize=do_denormalize)
-        print("---------------------------------image.type = ", type(image))
+
         # Offload all models
         self.maybe_free_model_hooks()
 
         if not return_dict:
-            print("------------------------------------not return_dict")
             return (image, has_nsfw_concept)
-        print("------------------------------------return StableDiffusionPipelineOutput")
-        
+
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
 
     def _encode_prompt(
@@ -602,8 +513,7 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         else:
             batch_size = prompt_embeds.shape[0]
 
-        if prompt_embeds is None: # TODO 没有执行到
-            print("-------------------------------------------############################## prompt_embeds is None")
+        if prompt_embeds is None:
             # textual inversion: procecss multi-vector tokens if necessary
             if isinstance(self, TextualInversionLoaderMixin):
                 prompt = self.maybe_convert_prompt(prompt, self.tokenizer)
@@ -647,51 +557,46 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
         prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
 
-        # # get unconditional embeddings for classifier free guidance
-        # if do_classifier_free_guidance and negative_prompt_embeds is None: # TODO 有执行到
-        #     print("---------------------------------------############################## do_classifier_free_guidance and negative_prompt_embeds is None")
-        #     uncond_tokens: List[str]
-        #     if negative_prompt is None:
-        #         uncond_tokens = [""] * batch_size
-        #     elif type(prompt) is not type(negative_prompt):
-        #         raise TypeError(
-        #             f"`negative_prompt` should be the same type to `prompt`, but got {type(negative_prompt)} !="
-        #             f" {type(prompt)}."
-        #         )
-        #     elif isinstance(negative_prompt, str):
-        #         uncond_tokens = [negative_prompt]
-        #     elif batch_size != len(negative_prompt):
-        #         raise ValueError(
-        #             f"`negative_prompt`: {negative_prompt} has batch size {len(negative_prompt)}, but `prompt`:"
-        #             f" {prompt} has batch size {batch_size}. Please make sure that passed `negative_prompt` matches"
-        #             " the batch size of `prompt`."
-        #         )
-        #     else:
-        #         uncond_tokens = negative_prompt
+        # get unconditional embeddings for classifier free guidance
+        if do_classifier_free_guidance and negative_prompt_embeds is None:
+            uncond_tokens: List[str]
+            if negative_prompt is None:
+                uncond_tokens = [""] * batch_size
+            elif type(prompt) is not type(negative_prompt):
+                raise TypeError(
+                    f"`negative_prompt` should be the same type to `prompt`, but got {type(negative_prompt)} !="
+                    f" {type(prompt)}."
+                )
+            elif isinstance(negative_prompt, str):
+                uncond_tokens = [negative_prompt]
+            elif batch_size != len(negative_prompt):
+                raise ValueError(
+                    f"`negative_prompt`: {negative_prompt} has batch size {len(negative_prompt)}, but `prompt`:"
+                    f" {prompt} has batch size {batch_size}. Please make sure that passed `negative_prompt` matches"
+                    " the batch size of `prompt`."
+                )
+            else:
+                uncond_tokens = negative_prompt
 
-        #     # textual inversion: procecss multi-vector tokens if necessary
-        #     if isinstance(self, TextualInversionLoaderMixin):
-        #         print("------------------------------------############################## isinstance(self, TextualInversionLoaderMixin)")
-        #         uncond_tokens = self.maybe_convert_prompt(uncond_tokens, self.tokenizer)
+            # textual inversion: procecss multi-vector tokens if necessary
+            if isinstance(self, TextualInversionLoaderMixin):
+                uncond_tokens = self.maybe_convert_prompt(uncond_tokens, self.tokenizer)
 
-        #     max_length = prompt_embeds.shape[1]
-        #     uncond_input = self.tokenizer(
-        #         uncond_tokens,
-        #         padding="max_length",
-        #         max_length=max_length,
-        #         truncation=True,
-        #         return_tensors="pt",
-        #     )
+            max_length = prompt_embeds.shape[1]
+            uncond_input = self.tokenizer(
+                uncond_tokens,
+                padding="max_length",
+                max_length=max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
 
-        #     if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
-        #         attention_mask = uncond_input.attention_mask.to(device)
-        #     else:
-        #         attention_mask = None
+            if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
+                attention_mask = uncond_input.attention_mask.to(device)
+            else:
+                attention_mask = None
 
-        # TODO 上面注释掉没有影响
-
-        if do_classifier_free_guidance: # TODO 有执行到
-            print("--------------------------------------############################## do_classifier_free_guidance")
+        if do_classifier_free_guidance:
             prompt_embeds = torch.cat([prompt_embeds, prompt_embeds])
 
         return prompt_embeds
@@ -792,7 +697,6 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
-        print("--------------------------------prepare_latents shape = ", shape)
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -800,10 +704,8 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
             )
 
         if latents is None:
-            print("--------------------------------latents is None")
             latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
         else:
-            print("--------------------------------latents not None")
             latents = latents.to(device)
 
         # scale the initial noise by the standard deviation required by the scheduler
@@ -821,11 +723,10 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         image = image.to(device=device, dtype=dtype)
 
         batch_size = batch_size * num_images_per_prompt
-        print("-----------------------------image.shape = ", image.shape, "-----image.shape[1] = ", image.shape[1])
-        # torch.Size([1, 3, 512, 384]) -----image.shape[1] =  3
+
         if image.shape[1] == 4:
             image_latents = image
-        else: # TODO 走else分支
+        else:
             if isinstance(generator, list) and len(generator) != batch_size:
                 raise ValueError(
                     f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -833,11 +734,9 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                 )
 
             if isinstance(generator, list):
-                print("=================================vae.encode(image[i : i + 1])----prepare_garm_latents")
-                image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)] # TODO vae.encode
+                image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)]
                 image_latents = torch.cat(image_latents, dim=0)
             else:
-                print("=================================vae.encode(image)----prepare_garm_latents")
                 image_latents = self.vae.encode(image).latent_dist.mode()
 
         if batch_size > image_latents.shape[0] and batch_size % image_latents.shape[0] == 0:
@@ -880,13 +779,11 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                 )
 
             if isinstance(generator, list):
-                print("=================================vae.encode(image[i : i + 1])----prepare_vton_latents")
                 image_latents = [self.vae.encode(image[i : i + 1]).latent_dist.mode() for i in range(batch_size)]
                 image_latents = torch.cat(image_latents, dim=0)
                 image_ori_latents = [self.vae.encode(image_ori[i : i + 1]).latent_dist.mode() for i in range(batch_size)]
                 image_ori_latents = torch.cat(image_ori_latents, dim=0)
-            else: # TODO 走的是这个分支, check下什么时候走另一个分支
-                print("=================================vae.encode(image)----prepare_vton_latents")
+            else:
                 image_latents = self.vae.encode(image).latent_dist.mode()
                 image_ori_latents = self.vae.encode(image_ori).latent_dist.mode()
 
@@ -960,5 +857,4 @@ class OotdPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
     # corresponds to doing no classifier free guidance.
     @property
     def do_classifier_free_guidance(self):
-        # return False
         return self.image_guidance_scale >= 1.0
