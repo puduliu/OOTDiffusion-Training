@@ -42,13 +42,23 @@ from diffusers.models.embeddings import (
     Timesteps,
 )
 from diffusers.models.modeling_utils import ModelMixin 
-from diffusers.models.unet_2d_blocks import ( # TODO check下这些要不要移植
+
+from .unet_vton_2d_blocks import (
     UNetMidBlock2D,
     UNetMidBlock2DCrossAttn,
     UNetMidBlock2DSimpleCrossAttn,
     get_down_block,
     get_up_block,
 )
+
+# from diffusers.models.unet_2d_blocks import ( # TODO check下这些要不要移植
+#     UNetMidBlock2D,
+#     UNetMidBlock2DCrossAttn,
+#     UNetMidBlock2DSimpleCrossAttn,
+#     get_down_block,
+#     get_up_block,
+# )
+
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -797,6 +807,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
     def forward(
         self,
         sample: torch.FloatTensor,
+        spatial_attn_inputs, # TODO edit add 
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
         class_labels: Optional[torch.Tensor] = None,
@@ -864,6 +875,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 If `return_dict` is True, an [`~models.unet_2d_condition.UNet2DConditionOutput`] is returned, otherwise
                 a `tuple` is returned where the first element is the sample tensor.
         """
+
+        # print("==========================================unet_vton forward")
         # By default samples have to be AT least a multiple of the overall upsampling factor.
         # The overall upsampling factor is equal to 2 ** (# num of upsampling layers).
         # However, the upsampling interpolation output size can be forced to fit any upsampling size
@@ -1040,6 +1053,9 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             gligen_args = cross_attention_kwargs.pop("gligen")
             cross_attention_kwargs["gligen"] = {"objs": self.position_net(**gligen_args)}
 
+        # for spatial attention
+        spatial_attn_idx = 0 # TODO edit add spatial idx
+        
         # 3. down
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
         if USE_PEFT_BACKEND:
@@ -1072,8 +1088,10 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 if is_adapter and len(down_intrablock_additional_residuals) > 0:
                     additional_residuals["additional_residuals"] = down_intrablock_additional_residuals.pop(0)
 
-                sample, res_samples = downsample_block(
+                sample, res_samples, spatial_attn_inputs, spatial_attn_idx = downsample_block( # TODO edit add return
                     hidden_states=sample,
+                    spatial_attn_inputs=spatial_attn_inputs, # TODO edit add input
+                    spatial_attn_idx=spatial_attn_idx, # TODO edit add input
                     temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
@@ -1102,9 +1120,11 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         # 4. mid
         if self.mid_block is not None:
             if hasattr(self.mid_block, "has_cross_attention") and self.mid_block.has_cross_attention:
-                sample = self.mid_block(
+                sample, spatial_attn_inputs, spatial_attn_idx = self.mid_block( # TODO edit add reurn
                     sample,
-                    emb,
+                    spatial_attn_inputs=spatial_attn_inputs, # TODO edit add input
+                    spatial_attn_idx=spatial_attn_idx, # TODO edit add input
+                    temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
@@ -1137,8 +1157,10 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 upsample_size = down_block_res_samples[-1].shape[2:]
 
             if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
-                sample = upsample_block(
+                sample, spatial_attn_inputs, spatial_attn_idx = upsample_block( # TODO edit add return
                     hidden_states=sample,
+                    spatial_attn_inputs=spatial_attn_inputs, # TODO edit add input
+                    spatial_attn_idx=spatial_attn_idx, # TODO edit add input
                     temb=emb,
                     res_hidden_states_tuple=res_samples,
                     encoder_hidden_states=encoder_hidden_states,

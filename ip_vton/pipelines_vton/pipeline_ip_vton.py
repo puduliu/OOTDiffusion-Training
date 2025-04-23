@@ -38,8 +38,10 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 
-from .unet_2d_condition import UNet2DConditionModel as UNetVton2DConditionModel
-from .unet_2d_condition import UNet2DConditionModel as UNetGarm2DConditionModel
+from .unet_garm_2d_condition import UNet2DConditionModel
+from .unet_vton_2d_condition import UNet2DConditionModel
+
+import PIL.Image
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -72,27 +74,27 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     return noise_cfg
 
 
-def retrieve_timesteps(
-    scheduler,
-    num_inference_steps: Optional[int] = None,
-    device: Optional[Union[str, torch.device]] = None,
-    timesteps: Optional[List[int]] = None,
-    **kwargs,
-):
-    if timesteps is not None:
-        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
-        if not accepts_timesteps:
-            raise ValueError(
-                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
-                f" timestep schedules. Please check whether you are using the correct scheduler."
-            )
-        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
-        timesteps = scheduler.timesteps
-        num_inference_steps = len(timesteps)
-    else:
-        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
-        timesteps = scheduler.timesteps
-    return timesteps, num_inference_steps
+# def retrieve_timesteps(
+#     scheduler,
+#     num_inference_steps: Optional[int] = None,
+#     device: Optional[Union[str, torch.device]] = None,
+#     timesteps: Optional[List[int]] = None,
+#     **kwargs,
+# ):
+#     if timesteps is not None:
+#         accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+#         if not accepts_timesteps:
+#             raise ValueError(
+#                 f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+#                 f" timestep schedules. Please check whether you are using the correct scheduler."
+#             )
+#         scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+#         timesteps = scheduler.timesteps
+#         num_inference_steps = len(timesteps)
+#     else:
+#         scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+#         timesteps = scheduler.timesteps
+#     return timesteps, num_inference_steps
 
 
 class StableDiffusionPipeline(
@@ -142,7 +144,7 @@ class StableDiffusionPipeline(
         text_encoder: CLIPTextModel,
         tokenizer: CLIPTokenizer,
         unet_garm: UNet2DConditionModel,
-        unet_vton: UNet2DConditionModel,
+        unet: UNet2DConditionModel,
         scheduler: KarrasDiffusionSchedulers,
         safety_checker: StableDiffusionSafetyChecker,
         feature_extractor: CLIPImageProcessor,
@@ -199,7 +201,7 @@ class StableDiffusionPipeline(
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             unet_garm=unet_garm,
-            unet_vton=unet_vton,
+            unet=unet,
             scheduler=scheduler,
             safety_checker=safety_checker,
             feature_extractor=feature_extractor,
@@ -733,7 +735,11 @@ class StableDiffusionPipeline(
     @property
     def guidance_scale(self):
         return self._guidance_scale
-
+    
+    @property
+    def image_guidance_scale(self):
+        return self._image_guidance_scale
+    
     @property
     def guidance_rescale(self):
         return self._guidance_rescale
@@ -769,11 +775,12 @@ class StableDiffusionPipeline(
         image_ori: PipelineImageInput = None,
         # TODO edit end
         
-        height: Optional[int] = None,
-        width: Optional[int] = None,
+        height: Optional[int] = None, # TODO edit
+        width: Optional[int] = None, # TODO edit
         num_inference_steps: int = 50,
-        timesteps: List[int] = None,
+        # timesteps: List[int] = None, # TODO edit
         guidance_scale: float = 7.5,
+        image_guidance_scale: float = 1.5,
         negative_prompt: Optional[Union[str, List[str]]] = None,
         num_images_per_prompt: Optional[int] = 1,
         eta: float = 0.0,
@@ -903,6 +910,8 @@ class StableDiffusionPipeline(
 
         self._guidance_scale = guidance_scale
         self._guidance_rescale = guidance_rescale
+        self._image_guidance_scale = image_guidance_scale # TODO edit add image_guidance_scale
+        
         self._clip_skip = clip_skip
         self._cross_attention_kwargs = cross_attention_kwargs
 
@@ -941,16 +950,16 @@ class StableDiffusionPipeline(
         if self.do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
 
-        if ip_adapter_image is not None:
+        if ip_adapter_image is not None: # TODO 这部分源码保留，用于ipadapter试试
             image_embeds, negative_image_embeds = self.encode_image(ip_adapter_image, device, num_images_per_prompt)
             if self.do_classifier_free_guidance:
                 image_embeds = torch.cat([negative_image_embeds, image_embeds])
 
         # 4. Prepare timesteps
-        timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
+        # timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
+        # TODO 将源码的retrieve_timesteps注释
 
         # TODO edit start
-        
         device = self._execution_device
         # check if scheduler is in sigmas space
         scheduler_is_in_sigma_space = hasattr(self.scheduler, "sigmas")
@@ -999,7 +1008,8 @@ class StableDiffusionPipeline(
         width = width * self.vae_scale_factor
         
         # 5. Prepare latent variables
-        num_channels_latents = self.unet.config.in_channels
+        # num_channels_latents = self.unet.config.in_channels
+        num_channels_latents = self.unet_garm.config.in_channels # TODO edit unet_vton in_channel变了，但是我们还是用4 channel
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             num_channels_latents,
@@ -1034,26 +1044,28 @@ class StableDiffusionPipeline(
         self._num_timesteps = len(timesteps)
         
         # TODO edit start
-        _, spatial_attn_outputs = self.unet_garm(
+        _, spatial_attn_outputs = self.unet_garm( # TODO 修改一下,返回一下两个参数
             garm_latents,
-            0,
+            0, # TODO check t = 0, 提取的是清晰的特征
             encoder_hidden_states=prompt_embeds,
             return_dict=False,
         )
+        # TODO check return noise_pred, spatial_attn_outputs 检查一下返回的是什么东西
         # TODO edit end
-        
+        print("=======================================latents.shape = ", latents.shape)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-                
+                scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                # print("------scaled_latent_model_input.shape = ",scaled_latent_model_input.shape, "vton_latents.shape = ", vton_latents.shape)
                 # TODO edit start
-                latent_vton_model_input = torch.cat([latent_model_input, vton_latents], dim=1)
+                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
+                # print("##################################latent_vton_model_input.shape = ", latent_vton_model_input.shape)
                 spatial_attn_inputs = spatial_attn_outputs.copy()
                 
                 # predict the noise residual
-                noise_pred = self.unet_vton(
+                noise_pred = self.unet(
                     latent_vton_model_input,
                     spatial_attn_inputs,
                     t,
@@ -1106,7 +1118,7 @@ class StableDiffusionPipeline(
                 # TODO edit end
 
                 # predict the noise residual
-                # noise_pred = self.unet(
+                # noise_pred = self.unet( # TODO 这个返回的是预测的噪声,t步时 latent x_t的噪声成分
                 #     latent_model_input,
                 #     t,
                 #     encoder_hidden_states=prompt_embeds,
@@ -1114,7 +1126,7 @@ class StableDiffusionPipeline(
                 #     cross_attention_kwargs=self.cross_attention_kwargs,
                 #     added_cond_kwargs=added_cond_kwargs,
                 #     return_dict=False,
-                # )[0]
+                # )[0] 
 
                 # perform guidance
                 # if self.do_classifier_free_guidance:
@@ -1126,7 +1138,7 @@ class StableDiffusionPipeline(
                 #     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=self.guidance_rescale)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                # latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}

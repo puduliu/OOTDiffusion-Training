@@ -16,8 +16,8 @@ import pdb
 from pipelines_vton.pipeline_ip_vton import StableDiffusionPipeline
 # from pipelines_vton.unet_garm_2d_condition import UNetGarm2DConditionModel
 # from pipelines_vton.unet_vton_2d_condition import UNetVton2DConditionModel # TODO 这些都改名了
-from pipelines_vton.unet_2d_condition import UNet2DConditionModel as UNetGarm2DConditionModel #TODO 都是要修改导入的，因为要输出特征，确认下和源码有何不同
-from pipelines_vton.unet_2d_condition import UNet2DConditionModel as UNetVton2DConditionModel
+from pipelines_vton.unet_garm_2d_condition import UNet2DConditionModel as UNetGarm2DConditionModel #TODO 都是要修改导入的，因为要输出特征，确认下和源码有何不同
+from pipelines_vton.unet_vton_2d_condition import UNet2DConditionModel as UNetVton2DConditionModel
 from diffusers import UniPCMultistepScheduler
 from diffusers import AutoencoderKL
 

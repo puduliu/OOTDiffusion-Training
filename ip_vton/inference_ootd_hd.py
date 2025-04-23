@@ -14,8 +14,8 @@ import time
 import pdb
 
 from pipelines_vton.pipeline_ip_vton import StableDiffusionPipeline as IPVTONPipeline
-from pipelines_vton.unet_2d_condition import UNet2DConditionModel #TODO 都是要修改导入的，因为要输出特征，确认下和源码有何不同
-from pipelines_vton.unet_2d_condition import UNet2DConditionModel
+from pipelines_vton.unet_garm_2d_condition import UNet2DConditionModel as UNetGarm2DConditionModel#TODO 都是要修改导入的，因为要输出特征，确认下和源码有何不同
+from pipelines_vton.unet_vton_2d_condition import UNet2DConditionModel as UNetVton2DConditionModel
 from diffusers import UniPCMultistepScheduler
 from diffusers import AutoencoderKL
 
@@ -44,13 +44,13 @@ class IPAdapterHD:
             torch_dtype=torch.float16,
         )
 
-        unet_garm = UNet2DConditionModel.from_pretrained(
+        unet_garm = UNetGarm2DConditionModel.from_pretrained(
             UNET_PATH,
             subfolder="unet_garm",
             torch_dtype=torch.float16,
             use_safetensors=True,
         )
-        unet_vton = UNet2DConditionModel.from_pretrained(
+        unet_vton = UNetVton2DConditionModel.from_pretrained(
             UNET_PATH,
             subfolder="unet_vton",
             torch_dtype=torch.float16,
@@ -58,26 +58,37 @@ class IPAdapterHD:
         )
     
         
-        self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(VIT_PATH).to(self.gpu_id)
-        
+        self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(VIT_PATH).to(self.gpu_id) # TODO 是ip_adapter自带的还是VIT，查看下diffuer的源码
+        #TODO image_encoder ootd有输入这个吗 
         self.pipe = IPVTONPipeline.from_pretrained(
             MODEL_PATH,
             unet_garm=unet_garm,
-            unet_vton=unet_vton,
+            unet=unet_vton, # 改成unet，适配ipadapter
             vae=vae,
             torch_dtype=torch.float16,
             variant="fp16",
             use_safetensors=True,
             safety_checker=None,
             requires_safety_checker=False,
-            image_encoder = self.image_encoder
+            image_encoder = self.image_encoder # TODO 这个是我另加的
         ).to(self.gpu_id)
+        
+        #TODO 使用ip adapter就算是从源码修改还是会报错，看一下如何调用！！！！
         
         # self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
         self.pipe.load_ip_adapter("/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/IP-Adapter"
                                   , subfolder="models", weight_name="ip-adapter_sd15.bin")
         # 'OotdPipeline' object has no attribute 'unet'
         # TODO 没有继承IPAdapterMixin，手敲吧
+
+
+        # image_encoder = self.get_image_encoder(repo_id="h94/IP-Adapter", subfolder="models/image_encoder")
+        # pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
+        #     "runwayml/stable-diffusion-v1-5", image_encoder=image_encoder, safety_checker=None, torch_dtype=self.dtype
+        # )
+        # pipeline.to(torch_device)
+        # pipeline.load_ip_adapter("h94/IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
+        # TODO 别人是这样加载的, 有传入image_encoder? 看一下diffuer源码
         
         self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
         
