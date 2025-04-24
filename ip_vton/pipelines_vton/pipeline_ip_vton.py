@@ -952,6 +952,7 @@ class StableDiffusionPipeline(
 
         if ip_adapter_image is not None: # TODO 这部分源码保留，用于ipadapter试试
             image_embeds, negative_image_embeds = self.encode_image(ip_adapter_image, device, num_images_per_prompt)
+            print("======================================ip_adapter_image to image_embeds#########################")
             if self.do_classifier_free_guidance:
                 image_embeds = torch.cat([negative_image_embeds, image_embeds])
 
@@ -1028,6 +1029,8 @@ class StableDiffusionPipeline(
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
+        #print("=======================================================image_embeds.shape = ", image_embeds.shape)
+        # image_embeds.shape = torch.Size([8, 1024])
         # 6.1 Add image embeds for IP-Adapter
         added_cond_kwargs = {"image_embeds": image_embeds} if ip_adapter_image is not None else None
 
@@ -1052,7 +1055,7 @@ class StableDiffusionPipeline(
         )
         # TODO check return noise_pred, spatial_attn_outputs 检查一下返回的是什么东西
         # TODO edit end
-        print("=======================================latents.shape = ", latents.shape)
+        print("================latents.shape = ", latents.shape, "============prompt_embeds.shape = ", prompt_embeds.shape)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
@@ -1072,7 +1075,7 @@ class StableDiffusionPipeline(
                     encoder_hidden_states=prompt_embeds,
                     timestep_cond=timestep_cond,
                     cross_attention_kwargs=self.cross_attention_kwargs,
-                    added_cond_kwargs=added_cond_kwargs,
+                    added_cond_kwargs=added_cond_kwargs, # TODO added_cond_kwargs for ip adapter 
                     return_dict=False,
                 )[0]
                 

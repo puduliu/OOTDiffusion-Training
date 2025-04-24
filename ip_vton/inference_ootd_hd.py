@@ -13,11 +13,13 @@ import random
 import time
 import pdb
 
-from pipelines_vton.pipeline_ip_vton import StableDiffusionPipeline as IPVTONPipeline
+# from pipelines_vton.pipeline_ip_vton import StableDiffusionPipeline as IPVTONPipeline
+from pipelines_vton.pipeline_ip_vton import StableDiffusionPipeline
 from pipelines_vton.unet_garm_2d_condition import UNet2DConditionModel as UNetGarm2DConditionModel#TODO 都是要修改导入的，因为要输出特征，确认下和源码有何不同
 from pipelines_vton.unet_vton_2d_condition import UNet2DConditionModel as UNetVton2DConditionModel
 from diffusers import UniPCMultistepScheduler
 from diffusers import AutoencoderKL
+# from diffusers.pipelines import StableDiffusionPipeline, IPAdapterPipeline # TODO check 0.24是不是还没有IPAdapterPipeline?
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -58,9 +60,23 @@ class IPAdapterHD:
         )
     
         
-        self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(VIT_PATH).to(self.gpu_id) # TODO 是ip_adapter自带的还是VIT，查看下diffuer的源码
+        # self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(
+        #     VIT_PATH,
+        #     torch_dtype=torch.float16,
+        #     ).to(self.gpu_id)
+        # TODO SD 1.4 / 1.5	使用ViT-L/14 (clip-vit-large-patch14)，维度w为768
+        
+        self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(VIT_PATH).to(self.gpu_id)
+        
+        self.ip_image_encoder = CLIPVisionModelWithProjection.from_pretrained(
+            "../IP-Adapter", subfolder="models/image_encoder", torch_dtype=torch.float16
+        ).to(self.gpu_id)
+        # TODO IP-Adapter 自带的图像编码器输出是 1024 维
+        # TODO check ip adapter 如果你坚持想用标准 clip-vit-large-patch14 作为 image encoder，
+        # 那你必须替换掉 UNet 中的 encoder_hid_proj 模块，让它接受 768 维输入
+        
         #TODO image_encoder ootd有输入这个吗 
-        self.pipe = IPVTONPipeline.from_pretrained(
+        self.pipe = StableDiffusionPipeline.from_pretrained(
             MODEL_PATH,
             unet_garm=unet_garm,
             unet=unet_vton, # 改成unet，适配ipadapter
@@ -70,25 +86,15 @@ class IPAdapterHD:
             use_safetensors=True,
             safety_checker=None,
             requires_safety_checker=False,
-            image_encoder = self.image_encoder # TODO 这个是我另加的
+            image_encoder = self.ip_image_encoder # TODO 这个是我另加的
         ).to(self.gpu_id)
         
-        #TODO 使用ip adapter就算是从源码修改还是会报错，看一下如何调用！！！！
+        self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
         
-        # self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
-        self.pipe.load_ip_adapter("/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/IP-Adapter"
-                                  , subfolder="models", weight_name="ip-adapter_sd15.bin")
-        # 'OotdPipeline' object has no attribute 'unet'
-        # TODO 没有继承IPAdapterMixin，手敲吧
-
-
-        # image_encoder = self.get_image_encoder(repo_id="h94/IP-Adapter", subfolder="models/image_encoder")
-        # pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
-        #     "runwayml/stable-diffusion-v1-5", image_encoder=image_encoder, safety_checker=None, torch_dtype=self.dtype
-        # )
-        # pipeline.to(torch_device)
-        # pipeline.load_ip_adapter("h94/IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
-        # TODO 别人是这样加载的, 有传入image_encoder? 看一下diffuer源码
+        # print("=======================self.unet.encoder_hid_proj.image_embeds.weight = ", self.pipe.unet.encoder_hid_proj.image_embeds.weight)
+        
+        # TODO load_ip_adapter完self.encoder_hid_proj = ImageProjection, self.config.encoder_hid_dim_type =  ip_image_proj
+        # TODO 不加载self.encoder_hid_proj和self.config.encoder_hid_dim_type都为None
         
         self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
         
@@ -148,6 +154,8 @@ class IPAdapterHD:
             else:
                 raise ValueError("model_type must be \'hd\' or \'dc\'!")
 
+            cloth_img = Image.open("/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/run/examples/garment/10297_00.jpg").resize((768, 1024))
+            cloth_img = cloth_img.resize((384, 512), Image.NEAREST)
             images = self.pipe(prompt_embeds=prompt_embeds,
                         image_garm=image_garm,
                         image_vton=image_vton, 
@@ -156,7 +164,8 @@ class IPAdapterHD:
                         num_inference_steps=num_steps,
                         image_guidance_scale=image_scale,
                         num_images_per_prompt=num_samples,
-                        ip_adapter_image=image_garm,
+                        ip_adapter_image=cloth_img,
+                        # negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality", 
                         generator=generator,
             ).images
 

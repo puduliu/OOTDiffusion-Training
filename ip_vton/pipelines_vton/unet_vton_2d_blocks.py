@@ -1058,7 +1058,7 @@ class CrossAttnDownBlock2D(nn.Module):
         super().__init__()
         resnets = []
         attentions = []
-
+        print("===========CrossAttnDownBlock2D===============================cross_attention_dim = ", cross_attention_dim) # =768
         self.has_cross_attention = True
         self.num_attention_heads = num_attention_heads
         if isinstance(transformer_layers_per_block, int):
@@ -1135,7 +1135,8 @@ class CrossAttnDownBlock2D(nn.Module):
         additional_residuals: Optional[torch.FloatTensor] = None,
     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
         output_states = ()
-
+        
+        # print("===========unet_vton_2d_blocks===============================encoder_hidden_states.shape = ", encoder_hidden_states.shape)
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
 
         blocks = list(zip(self.resnets, self.attentions))

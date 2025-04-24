@@ -962,6 +962,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 emb = torch.cat([emb, class_emb], dim=-1)
             else:
                 emb = emb + class_emb
+        # print("===========================================self.config.addition_embed_type!!!! = ", self.config.addition_embed_type)
 
         if self.config.addition_embed_type == "text":
             aug_emb = self.add_embedding(encoder_hidden_states)
@@ -1010,9 +1011,11 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             hint = added_cond_kwargs.get("hint")
             aug_emb, hint = self.add_embedding(image_embs, hint)
             sample = torch.cat([sample, hint], dim=1)
-
+        # print("==========================================aug_emb = ", aug_emb)
         emb = emb + aug_emb if aug_emb is not None else emb
 
+        # print("==========================================self.encoder_hid_proj = ", self.encoder_hid_proj)
+        # print("==========================================self.config.encoder_hid_dim_type = ", self.config.encoder_hid_dim_type)
         if self.time_embed_act is not None:
             emb = self.time_embed_act(emb)
 
@@ -1042,7 +1045,11 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 )
             image_embeds = added_cond_kwargs.get("image_embeds")
             image_embeds = self.encoder_hid_proj(image_embeds).to(encoder_hidden_states.dtype)
+            # TODO ip adapter concat?
+            print("==================================================cat([encoder_hidden_states, image_embeds]")
+            print("====encoder_hidden_states.shape",encoder_hidden_states.shape,"======image_embeds.shape = ", image_embeds.shape)
             encoder_hidden_states = torch.cat([encoder_hidden_states, image_embeds], dim=1)
+            # print("====encoder_hidden_states_cat.shape",encoder_hidden_states.shape)
 
         # 2. pre-process
         sample = self.conv_in(sample)
@@ -1082,18 +1089,20 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
 
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
+            # print("===========================================down_blocks", downsample_block.__class__.__name__)
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                 # For t2i-adapter CrossAttnDownBlock2D
                 additional_residuals = {}
                 if is_adapter and len(down_intrablock_additional_residuals) > 0:
                     additional_residuals["additional_residuals"] = down_intrablock_additional_residuals.pop(0)
-
+                #print("###############################encoder_hidden_states.shape = ", encoder_hidden_states.shape)
+                # TODO 走的这个分支，有输入进去的
                 sample, res_samples, spatial_attn_inputs, spatial_attn_idx = downsample_block( # TODO edit add return
                     hidden_states=sample,
                     spatial_attn_inputs=spatial_attn_inputs, # TODO edit add input
                     spatial_attn_idx=spatial_attn_idx, # TODO edit add input
                     temb=emb,
-                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_hidden_states=encoder_hidden_states, # ipadapter走的是这里吗
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
                     encoder_attention_mask=encoder_attention_mask,

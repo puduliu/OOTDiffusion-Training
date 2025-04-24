@@ -151,7 +151,7 @@ class BasicTransformerBlock(nn.Module):
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
-
+        #print("======================####====================only_cross_attention = ", only_cross_attention) # TODO only_cross_attention = False
         self.use_ada_layer_norm_zero = (num_embeds_ada_norm is not None) and norm_type == "ada_norm_zero"
         self.use_ada_layer_norm = (num_embeds_ada_norm is not None) and norm_type == "ada_norm"
         self.use_ada_layer_norm_single = norm_type == "ada_norm_single"
@@ -260,6 +260,7 @@ class BasicTransformerBlock(nn.Module):
         batch_size = hidden_states.shape[0]
         
         # TODO edit start
+        # print("==========================================BasicTransformerBlock forward") # TODO 执行
         spatial_attn_input = spatial_attn_inputs[spatial_attn_idx]
         spatial_attn_idx += 1
         hidden_states = torch.cat((hidden_states, spatial_attn_input), dim=1) # TODO check cat
@@ -292,7 +293,15 @@ class BasicTransformerBlock(nn.Module):
         # 2. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
-
+        # print("=== ##############received cross_attention_kwargs################## ===", cross_attention_kwargs)
+        # TODO cross_attention_kwargs 打印出来是空的
+        print("=== ##############received encoder_hidden_states.shape################## ===", encoder_hidden_states.shape)
+        # TODO for ipadapter -> torch.Size([8, 6, 768])
+        print("=== ##############self.only_cross_attention################## ===", self.only_cross_attention)
+        # TODO self.only_cross_attention = False
+        
+        # TODO  only_cross_attention=False，attn1 是纯 self-attn，不会用 image_embeds
+        # TODO  attn2 Cross-Attention image_embeds 会被 concat 到 encoder_hidden_states，并在 attn2 中参与 cross-attn
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,

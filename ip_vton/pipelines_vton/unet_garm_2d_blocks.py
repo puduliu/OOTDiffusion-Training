@@ -1135,7 +1135,7 @@ class CrossAttnDownBlock2D(nn.Module):
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
 
         blocks = list(zip(self.resnets, self.attentions)) # TODO 修改attention源码
-
+        # print("==========================================encoder_hidden_states.shape = ", encoder_hidden_states.shape)
         for i, (resnet, attn) in enumerate(blocks):
             # print("===========================================CrossAttnDownBlock2D forward i = ", i, "====attn =", attn.__class__.__name__)
             if self.training and self.gradient_checkpointing:
