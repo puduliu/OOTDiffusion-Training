@@ -146,13 +146,29 @@ vae_scale_factor = 2 ** (len(vae.config.block_out_channels) - 1)
 image_processor = VaeImageProcessor(vae_scale_factor=vae_scale_factor)
 print("===============================Now using in_channels 2222:", unet_vton.conv_in.in_channels)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# training type
+weight_dtype=torch.float32
+if args.mixed_precision == "fp16":
+    weight_dtype = torch.float16
+elif args.mixed_precision == "bf16":
+    weight_dtype = torch.bfloat16
+print("------------------------------------------------------------weight_dtype = ", weight_dtype)
+# vae.to(device,dtype=weight_dtype)
+# unet_garm.to(device)
+# unet_vton.to(device) # TODO unet_garm和unet_vton设置 dtype会报错，看下什么原因
+# image_encoder.to(device,dtype=weight_dtype)
+# text_encoder.to(device,dtype=weight_dtype)
+
+
 from pytorch_lightning.callbacks import ModelCheckpoint
-# **保存 Checkpoint（仅保存模型权重，减少显存占用）**
+# **保存 Checkpoint（仅保存模型权重，减少显存占用）** TODO callback实际触发的回调是on_train_epoch_end
 checkpoint_callback = ModelCheckpoint(
     dirpath="checkpoints",     # 指定模型保存路径
     filename="epoch={epoch}-step={step}-hd",  # 设置保存文件的命名格式
-    save_weights_only=True,   # **只保存权重，减少显存占用**   False显存会溢出
-    every_n_epochs=5,          # **每 5 个 epoch 保存一次**
+    save_weights_only=False,   # **True只保存权重，减少显存占用**   False显存会溢出
+    every_n_epochs=1,          # **每 5 个 epoch 保存一次**
 ) # TODO ModelCheckpoint 并不会保存 模型结构信息（比如你把 in_channels=4 改成 in_channels=8）
 
 from logger import ImageLogger
@@ -166,8 +182,11 @@ accumulate_grad_batches=1
 
 # trainer = pl.Trainer(gpus=2, strategy="ddp_sharded", precision=16, accelerator="gpu", 
 #                      max_epochs=20, callbacks=[checkpoint_callback], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+# trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu", 
+#                      max_epochs=50, checkpoint_callback=False, progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+
 trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu", 
-                     max_epochs=50, checkpoint_callback=False, progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+                     max_epochs=50, callbacks=[logger], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
 
 
 # 实例化模型
@@ -185,6 +204,9 @@ model = VTONModel(
     learning_rate=1e-4,
     model_type="hd"
 )
-
+# model = create_model('./configs/anydoor.yaml').cpu() # TODO anydoor的模型的各个参数 比如通道数都完全知道并且准确了。我的初始化并不知道学习其初始化方法
 # 启动训练
 trainer.fit(model)
+
+# 优化器状态（optimizer state）和调度器状态（lr scheduler state）也一并保存并加载，否则会从头重新优化；# TODO 要不要保存一整个模块呢
+# trainer.fit(model, ckpt_path="checkpoints/epoch=10-step=xxxxx-hd.ckpt")

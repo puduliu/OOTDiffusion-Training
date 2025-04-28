@@ -25,20 +25,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoProcessor, CLIPVisionModelWithProjection
 from transformers import CLIPTextModel, CLIPTokenizer
-from encoders.modules import FrozenDinoV2Encoder
+# from encoders.modules import FrozenDinoV2Encoder
 
-VIT_PATH = "/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/checkpoints/clip-vit-large-patch14"
-VAE_PATH = "/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
-UNET_PATH = "/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd"
-# UNET_PATH = "/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet"
-MODEL_PATH = "/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
+VIT_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/clip-vit-large-patch14"
+VAE_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
+UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd"
+# UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet"
+MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
 
 class IPAdapterHD:
 
     def __init__(self, gpu_id):
         self.gpu_id = 'cuda:' + str(gpu_id)
 
-        self.encoder_dinov2  = FrozenDinoV2Encoder(device="cuda", freeze=True).to(self.gpu_id)  # TODO冻结的?
+        # self.encoder_dinov2  = FrozenDinoV2Encoder(device="cuda", freeze=True).to(self.gpu_id)  # TODO冻结的?
  
         vae = AutoencoderKL.from_pretrained(
             VAE_PATH,
@@ -67,6 +67,8 @@ class IPAdapterHD:
         # TODO SD 1.4 / 1.5	使用ViT-L/14 (clip-vit-large-patch14)，维度w为768
         
         self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(VIT_PATH).to(self.gpu_id)
+        # TODO image_embeds 是 pooled_output 经过一个 Projection Head（线性层，比如Linear(1024→768)）之后得到的特征，shape一般是 (batch_size, projection_dim)。
+        # TODO CLIPVisionModelWithProjection 比 CLIPVisionModel多了一个key 【image_embeds】
         
         self.ip_image_encoder = CLIPVisionModelWithProjection.from_pretrained(
             "../IP-Adapter", subfolder="models/image_encoder", torch_dtype=torch.float16
@@ -89,7 +91,7 @@ class IPAdapterHD:
             image_encoder = self.ip_image_encoder # TODO 这个是我另加的
         ).to(self.gpu_id)
         
-        self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
+        # self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
         
         # print("=======================self.unet.encoder_hid_proj.image_embeds.weight = ", self.pipe.unet.encoder_hid_proj.image_embeds.weight)
         
@@ -154,8 +156,8 @@ class IPAdapterHD:
             else:
                 raise ValueError("model_type must be \'hd\' or \'dc\'!")
 
-            cloth_img = Image.open("/media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/run/examples/garment/10297_00.jpg").resize((768, 1024))
-            cloth_img = cloth_img.resize((384, 512), Image.NEAREST)
+            # cloth_img = Image.open("/home/zyserver/work/lpd/OOTDiffusion-Training/run/examples/garment/10297_00.jpg").resize((768, 1024))
+            # cloth_img = cloth_img.resize((384, 512), Image.NEAREST)
             images = self.pipe(prompt_embeds=prompt_embeds,
                         image_garm=image_garm,
                         image_vton=image_vton, 
@@ -164,7 +166,7 @@ class IPAdapterHD:
                         num_inference_steps=num_steps,
                         image_guidance_scale=image_scale,
                         num_images_per_prompt=num_samples,
-                        ip_adapter_image=cloth_img,
+                        # ip_adapter_image=cloth_img,
                         # negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality", 
                         generator=generator,
             ).images

@@ -28,38 +28,29 @@ class VTONModel(pl.LightningModule):
         self.model_type = model_type
 
     def tokenize_captions(self, captions):
-        inputs = self.tokenizer( # TODO 这好像和推理的时候不太一样，推理的时候最大是2. 不知道有没有区别
+        inputs = self.tokenizer(
             captions, max_length=self.tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
         ).input_ids.cuda()
         return inputs
-    
-    # def tokenize_captions(self, captions, max_length):
-    #     inputs = self.tokenizer(
-    #         captions, max_length=max_length, padding="max_length", truncation=True, return_tensors="pt"
-    #     )
-    #     return inputs.input_ids
+
     def training_step(self, batch, batch_idx):
         image_garm = batch['img_garm'].to(self.device)
         image_vton = batch['img_vton'].to(self.device)
         image_ori = batch['img_ori'].to(self.device)
-        prompt = batch["prompt"] # TODO ['A cloth', 'A cloth'] 有文本提示词的，但是这样训练有用，是否是因为没有冻结unet_garm
-        # print("----------------------------------------prompt = ", prompt) # TODO检查下有没有内容，推理的时候没有内容
-        prompt_vton = [f'A model is wearing {item}' for item in prompt]
+        prompt = batch["prompt"]
+        print("----------------------------------------prompt = ", prompt) # TODO检查下有没有内容，推理的时候没有内容
 
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device) 
-        prompt_image = self.image_encoder(prompt_image).image_embeds.unsqueeze(1) # TODO 是否考虑不把prompt_image传入
+        prompt_image = self.image_encoder(prompt_image).image_embeds.unsqueeze(1)
 
         if self.model_type == 'hd':
-            # TODO check text_encoder
-            prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0] #TODO 这个为什么不用限制token长度而且不报错, torch.Size([2, 77, 768])
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton[:, 1:] = prompt_image[:] # TODO 只给vton输入prompt_image
-
+            prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0] #TODO 这个为什么不用限制token长度而且不报错
+            print("------------------------------------------prompt_embeds.shape = ", prompt_embeds.shape)
+            prompt_embeds[:, 1:] = prompt_image[:]
         elif self.model_type == 'dc':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton = torch.cat([prompt_embeds_vton, prompt_image], dim=1) # TODO 只给vton输入prompt_image
+            prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1)
         else:
             raise ValueError("model_type must be 'hd' or 'dc'!")
 
@@ -99,7 +90,7 @@ class VTONModel(pl.LightningModule):
         
             # 试穿去噪
             noise_pred = self.unet_vton(
-                latent_vton_model_input, spatial_attn_outputs.copy(), timesteps, encoder_hidden_states=prompt_embeds_vton, return_dict=False
+                latent_vton_model_input, spatial_attn_outputs.copy(), timesteps, encoder_hidden_states=prompt_embeds, return_dict=False
             )[0]  
 
             # 计算损失
@@ -150,9 +141,14 @@ class VTONModel(pl.LightningModule):
         image_vton = batch['img_vton'].to(self.device) # TODO 对模特衣服进行mask后的目标图像
         image_ori = batch['img_ori'].to(self.device) # TODO 原图
         prompt = batch["prompt"]
-        prompt_vton = [f'A model is wearing {item}' for item in prompt]
         print("---------------------------------------prompt = ", prompt)
-        print("---------------------------------------prompt_vton = ", prompt_vton)
+        # 保存图片以便可视化
+        save_dir = "./debug_images"
+        os.makedirs(save_dir, exist_ok=True)
+        for i in range(image_garm.size(0)):
+            to_pil_image(image_garm[i].cpu()).save(os.path.join(save_dir, f"batch_garm.png"))
+            to_pil_image(image_vton[i].cpu()).save(os.path.join(save_dir, f"batch_vton.png"))
+            to_pil_image(image_ori[i].cpu()).save(os.path.join(save_dir, f"batch_ori.png"))
 
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
@@ -160,12 +156,12 @@ class VTONModel(pl.LightningModule):
 
         if self.model_type == 'hd':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton[:, 1:] = prompt_image[:] 
+            print("-------------------------------------------------prompt_embeds.shape = ", prompt_embeds.shape)
+            prompt_embeds[:, 1:] = prompt_image[:]
+            # TODO prompt_embeds[:, 0] 表示所有行的第0列 这个是什么，还有文本内容吗
         elif self.model_type == 'dc':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton = torch.cat([prompt_embeds_vton, prompt_image], dim=1)
+            prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1)
         else:
             raise ValueError("model_type must be 'hd' or 'dc'!")
 
@@ -281,8 +277,7 @@ class VTONModel(pl.LightningModule):
                 latent_vton_model_input, # TODO 输入?
                 spatial_attn_inputs,
                 t,
-                encoder_hidden_states=prompt_embeds_vton,
-                # added_cond_kwargs=added_cond_kwargs, # TODO add ip_adapter
+                encoder_hidden_states=prompt_embeds,
                 return_dict=False,
             )[0]
 

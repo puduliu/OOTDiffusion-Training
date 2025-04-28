@@ -295,9 +295,9 @@ class BasicTransformerBlock(nn.Module):
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
         # print("=== ##############received cross_attention_kwargs################## ===", cross_attention_kwargs)
         # TODO cross_attention_kwargs 打印出来是空的
-        print("=== ##############received encoder_hidden_states.shape################## ===", encoder_hidden_states.shape)
+        # print("=== ##############received encoder_hidden_states.shape################## ===", encoder_hidden_states.shape)
         # TODO for ipadapter -> torch.Size([8, 6, 768])
-        print("=== ##############self.only_cross_attention################## ===", self.only_cross_attention)
+        # print("=== ##############self.only_cross_attention################## ===", self.only_cross_attention) 
         # TODO self.only_cross_attention = False
         
         # TODO  only_cross_attention=False，attn1 是纯 self-attn，不会用 image_embeds

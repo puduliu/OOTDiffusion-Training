@@ -237,7 +237,7 @@ for epoch in tqdm(range(first_epoch, train_epochs)):
         prompt_image = prompt_image.unsqueeze(1)
         
         if model_type == 'hd':
-            prompt_embeds = text_encoder(tokenize_captions(prompt).to(device))[0]
+            prompt_embeds = text_encoder(tokenize_captions(prompt).to(device))[0] # TODO 没有设置最大长度吗 max_length
             prompt_embeds[:, 1:] = prompt_image[:]
             
         elif model_type == 'dc':

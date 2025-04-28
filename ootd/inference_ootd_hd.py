@@ -117,11 +117,12 @@ class OOTDiffusionHD:
             prompt_image = self.image_encoder(prompt_image.data['pixel_values']).image_embeds
             prompt_image = prompt_image.unsqueeze(1)
             if model_type == 'hd':
-                prompt_embeds = self.text_encoder(self.tokenize_captions([""], 2).to(self.gpu_id))[0]
-                prompt_embeds[:, 1:] = prompt_image[:]
+                prompt_embeds = self.text_encoder(self.tokenize_captions(["A cloth"], 77).to(self.gpu_id))[0] # TODO check下有啥不一样 A cloth，好像确实影响不大
+                print("-------------------------------------------------------prompt_embeds.shape = ", prompt_embeds.shape)
+                prompt_embeds[:, 1:] = prompt_image[:] # TODO 这是直接替换?
             elif model_type == 'dc':
                 prompt_embeds = self.text_encoder(self.tokenize_captions([category], 3).to(self.gpu_id))[0]
-                prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1)
+                prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1) # TODO 这是concat?
             else:
                 raise ValueError("model_type must be \'hd\' or \'dc\'!")
 

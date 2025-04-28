@@ -21,7 +21,7 @@
 
 # TODO 训练的时候是不是得有个全新的unet_path,或者用预训练模型
   # --unet_path "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd/unet_garm" \
-CUDA_VISIBLE_DEVICES=0 python train_ootd_pl.py \
+CUDA_VISIBLE_DEVICES=0 python train_ootd_pl_ip_adapter.py \
   --model_type "hd" \
   --train_epochs 50 \
   --batch_size 2 \

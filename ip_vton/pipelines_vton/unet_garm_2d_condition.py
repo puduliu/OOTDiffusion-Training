@@ -876,7 +876,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 a `tuple` is returned where the first element is the sample tensor.
         """
 
-        print("==========================================unet_garm forward")
+        # print("==========================================unet_garm forward")
         # By default samples have to be AT least a multiple of the overall upsampling factor.
         # The overall upsampling factor is equal to 2 ** (# num of upsampling layers).
         # However, the upsampling interpolation output size can be forced to fit any upsampling size

@@ -33,11 +33,6 @@ class VTONModel(pl.LightningModule):
         ).input_ids.cuda()
         return inputs
     
-    # def tokenize_captions(self, captions, max_length):
-    #     inputs = self.tokenizer(
-    #         captions, max_length=max_length, padding="max_length", truncation=True, return_tensors="pt"
-    #     )
-    #     return inputs.input_ids
     def training_step(self, batch, batch_idx):
         image_garm = batch['img_garm'].to(self.device)
         image_vton = batch['img_vton'].to(self.device)
@@ -48,22 +43,31 @@ class VTONModel(pl.LightningModule):
 
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device) 
-        prompt_image = self.image_encoder(prompt_image).image_embeds.unsqueeze(1) # TODO 是否考虑不把prompt_image传入
+        prompt_image = self.image_encoder(prompt_image).image_embeds.unsqueeze(1)
 
         if self.model_type == 'hd':
             # TODO check text_encoder
-            prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0] #TODO 这个为什么不用限制token长度而且不报错, torch.Size([2, 77, 768])
+            prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0] #TODO 给unet_gram
+            # prompt_embeds[:, 1:] = prompt_image[:] 
+            # TODO 给 unet_garm和unet_vton同时注入prompt_image效果会不会比较好呢，会不会有助于unet_vton理解 TODO
+            # TODO 给 unet_garm和unet_vton同时都不注入prompt_image效果会不会比较好呢，会不会有助于unet_vton理解 TODO
+            
+            # text_encoder返回得是BaseModelOutputWithPooling ? [0]取得是last_hidden_state打印看看
             prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
+            # 'A model is wearing A cloth传给 vton，应该继续把prompt_image(garm信息传给vton)
             prompt_embeds_vton[:, 1:] = prompt_image[:] # TODO 只给vton输入prompt_image
+            # 第一个 token (prompt_embeds_vton[:, 0]) 通常是 特殊的起始符号，但经过 transformer 后，它变成了总结整句话的一个向量。有一定的信息
 
         elif self.model_type == 'dc':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
+            # TODO dc这个情况的话,提示词要改一下
             prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
             prompt_embeds_vton = torch.cat([prompt_embeds_vton, prompt_image], dim=1) # TODO 只给vton输入prompt_image
         else:
             raise ValueError("model_type must be 'hd' or 'dc'!")
 
         prompt_embeds = prompt_embeds.to(self.device)
+        prompt_embeds_vton = prompt_embeds_vton.to(self.device)
 
         # 预处理图片
         image_garm = self.image_processor.preprocess(image_garm)
@@ -321,32 +325,3 @@ class VTONModel(pl.LightningModule):
 
         log["images"] = image
         return log
-
-    
-    
-    
-    # def on_save_checkpoint(self, checkpoint): # TODO 覆盖父类方法, 自动按照模块保存
-    #     """Lightning 自动保存时，按模块保存"""
-    #     save_dir = "checkpoints/"
-    #     torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
-    #     torch.save(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.pth")
-    #     torch.save(self.vae.state_dict(), f"{save_dir}/vae.pth")
-    #     torch.save(self.text_encoder.state_dict(), f"{save_dir}/text_encoder.pth")
-    #     torch.save(self.image_encoder.state_dict(), f"{save_dir}/image_encoder.pth")
-    #     print("【自动保存】所有子模块已分别保存至 `checkpoints/` 目录")
-
-
-    # def on_save_checkpoint(self, checkpoint):
-    #     save_dir = "checkpoints/"
-    #     torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
-    #     save_file(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.safetensors")
-    #     # torch.save(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.pth")
-    #     print("✅ 已单独保存 unet_garm 和 unet_vton！")
-
-    # def on_save_checkpoint(self, checkpoint):
-    #         # 每 5 个 epoch 保存一次
-    #         if self.current_epoch % 5 == 0:
-    #             save_dir = "checkpoints/"
-    #             torch.save(self.unet_garm.state_dict(), f"{save_dir}/unet_garm.pth")
-    #             save_file(self.unet_vton.state_dict(), f"{save_dir}/unet_vton.safetensors")
-    #             print(f"✅ 已保存 unet_garm 和 unet_vton 模型，epoch {self.current_epoch}！")

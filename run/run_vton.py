@@ -8,8 +8,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from preprocess.openpose.run_openpose import OpenPose
 from preprocess.humanparsing.run_parsing import Parsing
-from ootd.inference_ootd_hd import OOTDiffusionHD
-from ootd.inference_ootd_dc import OOTDiffusionDC
+from ip_vton.inference_vton_hd import IPAdapterHD
+from ip_vton.inference_vton_dc import IPAdapterDC
 
 
 import argparse
@@ -44,9 +44,9 @@ n_samples = args.sample
 seed = args.seed
 
 if model_type == "hd":
-    model = OOTDiffusionHD(args.gpu_id) # TODO 用这个
+    model = IPAdapterHD(args.gpu_id) # TODO 用这个
 elif model_type == "dc":
-    model = OOTDiffusionDC(args.gpu_id)
+    model = IPAdapterDC(args.gpu_id)
 else:
     raise ValueError("model_type must be \'hd\' or \'dc\'!")
 
@@ -68,10 +68,10 @@ if __name__ == '__main__':
     # resize to 384x512 for input
     masked_vton_img = Image.composite(mask_gray, model_img, mask)
     masked_vton_img.save('./images_output/mask.jpg')
-    masked_vton_img = masked_vton_img.resize((384, 512), Image.NEAREST) # TODO 添加了mask的模特图像，给人体要替换区域添加了mask
-    cloth_img = cloth_img.resize((384, 512), Image.NEAREST) # TODO 要替换的衣服
-    mask = mask.resize((384, 512), Image.NEAREST) # TODO 模特图像的要替换区域的mask
-    model_img = model_img.resize((384, 512), Image.NEAREST) # 原来的模特图像(要替换的模特图像)   
+    masked_vton_img = masked_vton_img.resize((384, 512), Image.NEAREST)
+    cloth_img = cloth_img.resize((384, 512), Image.NEAREST)
+    mask = mask.resize((384, 512), Image.NEAREST)
+    model_img = model_img.resize((384, 512), Image.NEAREST)    
     
     images = model(
         model_type=model_type,

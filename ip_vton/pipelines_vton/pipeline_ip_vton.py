@@ -948,7 +948,8 @@ class StableDiffusionPipeline(
         # Here we concatenate the unconditional and text embeddings into a single batch
         # to avoid doing two forward passes
         if self.do_classifier_free_guidance:
-            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
+            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds]) 
+            # TODO 这个对比一下 ootd, 它好像是将([prompt_embeds, prompt_embeds]) cat在一起
 
         if ip_adapter_image is not None: # TODO 这部分源码保留，用于ipadapter试试
             image_embeds, negative_image_embeds = self.encode_image(ip_adapter_image, device, num_images_per_prompt)
