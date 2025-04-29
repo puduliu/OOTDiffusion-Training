@@ -25,7 +25,7 @@ from pathlib import Path
 import logging
 
 import pytorch_lightning as pl
-from run.VTONModel_clip_vtion_text_image_ip import VTONModel # TODO edit change
+from VTONModel_clip_vtion_text_image_ip import VTONModel # TODO edit change
 sys.path.append(r'../IP-Adapter')
 from ip_adapter.ip_adapter import Resampler, IPAdapter, ImageProjModel
 
@@ -99,6 +99,7 @@ def get_args():
 from ip_adapter.utils import is_torch2_available
 
 if is_torch2_available():
+    print("====================================torch2 is available")
     from ip_adapter.attention_processor import (
         AttnProcessor2_0 as AttnProcessor,
     )
@@ -109,66 +110,67 @@ if is_torch2_available():
         IPAttnProcessor2_0 as IPAttnProcessor,
     )
 else:
+    print("====================================torch2 is not available")
     from ip_adapter.attention_processor import AttnProcessor, CNAttnProcessor, IPAttnProcessor
 from safetensors import safe_open
 
-def set_ip_adapter(unet,num_tokens, device,dtype):
-    attn_procs = {}
-    for name in unet.attn_processors.keys():
-        cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
-        if name.startswith("mid_block"):
-            hidden_size = unet.config.block_out_channels[-1]
-        elif name.startswith("up_blocks"):
-            block_id = int(name[len("up_blocks.")])
-            hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
-        elif name.startswith("down_blocks"):
-            block_id = int(name[len("down_blocks.")])
-            hidden_size = unet.config.block_out_channels[block_id]
-        if cross_attention_dim is None:
-            attn_procs[name] = AttnProcessor()
-        else:
-            attn_procs[name] = IPAttnProcessor( # TODO 用自定义的注意力模块（IPAttnProcessor）替换掉原本 UNet 里的 cross-attention processor，从而实现图像引导?
-                hidden_size=hidden_size,
-                cross_attention_dim=cross_attention_dim,
-                scale=1.0,
-                num_tokens=num_tokens,
-            ).to(device, dtype=dtype)
-    unet.set_attn_processor(attn_procs)
-    # if hasattr(self.pipe, "controlnet"):
-    #     if isinstance(self.pipe.controlnet, MultiControlNetModel):
-    #         for controlnet in self.pipe.controlnet.nets:
-    #             controlnet.set_attn_processor(CNAttnProcessor(num_tokens=self.num_tokens))
-    #     else:
-    #         self.pipe.controlnet.set_attn_processor(CNAttnProcessor(num_tokens=self.num_tokens))
+# def set_ip_adapter(unet,num_tokens, device,dtype):
+#     attn_procs = {}
+#     for name in unet.attn_processors.keys():
+#         cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
+#         if name.startswith("mid_block"):
+#             hidden_size = unet.config.block_out_channels[-1]
+#         elif name.startswith("up_blocks"):
+#             block_id = int(name[len("up_blocks.")])
+#             hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
+#         elif name.startswith("down_blocks"):
+#             block_id = int(name[len("down_blocks.")])
+#             hidden_size = unet.config.block_out_channels[block_id]
+#         if cross_attention_dim is None:
+#             attn_procs[name] = AttnProcessor()
+#         else:
+#             attn_procs[name] = IPAttnProcessor( # TODO 用自定义的注意力模块（IPAttnProcessor）替换掉原本 UNet 里的 cross-attention processor，从而实现图像引导?
+#                 hidden_size=hidden_size,
+#                 cross_attention_dim=cross_attention_dim,
+#                 scale=1.0,
+#                 num_tokens=num_tokens,
+#             ).to(device, dtype=dtype)
+#     unet.set_attn_processor(attn_procs)
+#     # if hasattr(self.pipe, "controlnet"):
+#     #     if isinstance(self.pipe.controlnet, MultiControlNetModel):
+#     #         for controlnet in self.pipe.controlnet.nets:
+#     #             controlnet.set_attn_processor(CNAttnProcessor(num_tokens=self.num_tokens))
+#     #     else:
+#     #         self.pipe.controlnet.set_attn_processor(CNAttnProcessor(num_tokens=self.num_tokens))
 
-def load_ip_adapter(unet, ip_ckpt):
-    if os.path.splitext(ip_ckpt)[-1] == ".safetensors":
-        state_dict = {"image_proj": {}, "ip_adapter": {}}
-        with safe_open(ip_ckpt, framework="pt", device="cpu") as f:
-            for key in f.keys():
-                if key.startswith("image_proj."):
-                    state_dict["image_proj"][key.replace("image_proj.", "")] = f.get_tensor(key)
-                elif key.startswith("ip_adapter."):
-                    state_dict["ip_adapter"][key.replace("ip_adapter.", "")] = f.get_tensor(key)
-    else:
-        state_dict = torch.load(ip_ckpt, map_location="cpu")
-    image_proj_model.load_state_dict(state_dict["image_proj"])
-    ip_layers = torch.nn.ModuleList(unet.attn_processors.values())
-    ip_layers.load_state_dict(state_dict["ip_adapter"])
+# def load_ip_adapter(unet, ip_ckpt):
+#     if os.path.splitext(ip_ckpt)[-1] == ".safetensors":
+#         state_dict = {"image_proj": {}, "ip_adapter": {}}
+#         with safe_open(ip_ckpt, framework="pt", device="cpu") as f:
+#             for key in f.keys():
+#                 if key.startswith("image_proj."):
+#                     state_dict["image_proj"][key.replace("image_proj.", "")] = f.get_tensor(key)
+#                 elif key.startswith("ip_adapter."):
+#                     state_dict["ip_adapter"][key.replace("ip_adapter.", "")] = f.get_tensor(key)
+#     else:
+#         state_dict = torch.load(ip_ckpt, map_location="cpu")
+#     image_proj_model.load_state_dict(state_dict["image_proj"])
+#     ip_layers = torch.nn.ModuleList(unet.attn_processors.values())
+#     ip_layers.load_state_dict(state_dict["ip_adapter"])
 
 
-def init_proj(unet, num_tokens, device, dtype):
-    image_proj_model = Resampler(
-        dim=unet.config.cross_attention_dim,
-        depth=4,
-        dim_head=64,
-        heads=12,
-        num_queries=num_tokens,
-        embedding_dim=image_encoder.config.hidden_size,
-        output_dim=unet.config.cross_attention_dim,
-        ff_mult=4,
-    ).to(device, dtype=dtype)
-    return image_proj_model
+# def init_proj(unet, num_tokens, device, dtype):
+#     image_proj_model = Resampler(
+#         dim=unet.config.cross_attention_dim,
+#         depth=4,
+#         dim_head=64,
+#         heads=12,
+#         num_queries=num_tokens,
+#         embedding_dim=image_encoder.config.hidden_size,
+#         output_dim=unet.config.cross_attention_dim,
+#         ff_mult=4,
+#     ).to(device, dtype=dtype)
+#     return image_proj_model
     
 
 args = get_args()
@@ -273,6 +275,7 @@ image_proj_model = ImageProjModel(
     clip_embeddings_dim=ip_image_encoder.config.projection_dim, #官方 IP-Adapter 用的，默认是基于 CLIP ViT-H/14（clip_embeddings_dim=1024）
     clip_extra_context_tokens=4,
 )
+# image_proj_model = image_proj_model.to(device=device, dtype=torch.float16)
 print("===================================unet_vton.config.cross_attention_dim = ", unet_vton.config.cross_attention_dim) # TODO cross_attention_dim = 768
 # init adapter modules
 attn_procs = {}
@@ -298,15 +301,17 @@ for name in unet_vton.attn_processors.keys():
         attn_procs[name] = IPAttnProcessor(hidden_size=hidden_size, cross_attention_dim=cross_attention_dim)
         attn_procs[name].load_state_dict(weights)
 unet_vton.set_attn_processor(attn_procs)
-adapter_modules = torch.nn.ModuleList(unet_vton.attn_processors.values())
-
-state_dict = torch.load("/home/zyserver/work/lpd/OOTDiffusion-Training/IP-Adapter/models/ip-adapter_sd15.bin", map_location="cpu")
+adapter_modules = torch.nn.ModuleList(unet_vton.attn_processors.values()) 
+# TODO adapter_modules = ModuleList(unet_vton.attn_processors.values()) 这句拷贝的是模块的引用，
+state_dict = torch.load("/home/lenovo/work/sjj/OOTDiffusion-Training/IP-Adapter/models/ip-adapter_sd15.bin", map_location="cpu")
 print("-------------------------------------------state_dict.keys() = ", state_dict.keys())
 image_proj_model.load_state_dict(state_dict["image_proj"], strict=True)
-adapter_modules.load_state_dict(state_dict["ip_adapter"], strict=True)
-unet_vton.encoder_hid_proj = image_proj_model # TODO check看一下load ipadapter里面有没有 ，ip_adapter = IPAdapter(image_proj, ...)里面手动挂上?
-# TODO 看一下推理的时候 encoder_hid_proj, encoder_hid_dim_type, encoder_hid_dim 这几个参数
-# latents, proj_in, proj_out，这是 Plus 专属的结构。ip-adapter_sd15.bin是普通的ipadapter?
+adapter_modules.load_state_dict(state_dict["ip_adapter"], strict=True) # TODO 实际上是把权重load到UNet里了。
+unet_vton.encoder_hid_proj = image_proj_model 
+
+# TODO 这种加载方式是不是也可以 遍历 attn_processors 直接 load
+# for name, module in unet_vton.attn_processors.items():
+#     module.load_state_dict(state_dict["ip_adapter"][name])
 
 
 

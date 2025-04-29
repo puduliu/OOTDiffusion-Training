@@ -42,8 +42,18 @@ class VTONModel(pl.LightningModule):
         # print("----------------------------------------prompt = ", prompt) # TODO检查下有没有内容，推理的时候没有内容
         prompt_vton = [f'A model is wearing {item}' for item in prompt]
 
+        
+        with torch.no_grad():
+            image_ip = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
+            # print("=================================image_ip.shape = ", type(image_ip))
+            image_embeds = self.ip_image_encoder(image_ip).image_embeds
+            image_embeds.to(dtype=self.text_encoder.dtype, device=self.device)
+            # print("============================================image_embeds.shape = ", image_embeds.shape)
+            added_cond_kwargs = {"image_embeds": image_embeds}
+            
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device) 
+        # print("=====================================prompt_image.shape = ", prompt_image.shape) # torch.Size([2, 3, 224, 224])
         prompt_image = self.image_encoder(prompt_image).image_embeds.unsqueeze(1)
         
         # TODO check unsqueeze(1)是干什么用的，ipadapter应该不需要吧.
@@ -93,17 +103,6 @@ class VTONModel(pl.LightningModule):
         # latent_vton_model_input = noisy_latents + image_latents_vton
         latent_vton_model_input = torch.cat([noisy_latents, image_latents_vton], dim=1) 
         # TODO check 为什么这两个要cat起来，不应该跟纯噪声cat? noisy_latents是纯噪声吗
-
-        with torch.no_grad():
-            image_embeds_test = self.image_encoder(image_garm).image_embeds
-            print("============================================image_embeds_test.shape = ", image_embeds_test.shape)
-            # TODO ip_adapter
-            image_embeds = self.ip_image_encoder(image_garm).image_embeds
-            print("============================================image_embeds.shape = ", image_embeds.shape)
-            # uncond_image_embeds = torch.zeros_like(image_embeds) # TODO 这个需要用到吗
-            # if do_classifier_free_guidance:
-            #     image_embeds = torch.cat([uncond_image_embeds, image_embeds])
-            added_cond_kwargs = {"image_embeds": image_embeds}
             
                     
         with torch.cuda.amp.autocast(): 
@@ -166,7 +165,7 @@ class VTONModel(pl.LightningModule):
 
     @torch.no_grad()
     def log_images(self, batch, **kwargs):
-        
+        do_classifier_free_guidance = False
         image_garm = batch['img_garm'].to(self.device) # TODO 要换的衣服
         image_vton = batch['img_vton'].to(self.device) # TODO 对模特衣服进行mask后的目标图像
         image_ori = batch['img_ori'].to(self.device) # TODO 原图
@@ -175,6 +174,16 @@ class VTONModel(pl.LightningModule):
         print("---------------------------------------prompt = ", prompt)
         print("---------------------------------------prompt_vton = ", prompt_vton)
 
+        image_ip = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
+        image_embeds = self.ip_image_encoder(image_ip).image_embeds
+        uncond_image_embeds = torch.zeros_like(image_embeds) # TODO 这个需要用到吗
+        if do_classifier_free_guidance:
+            # image_embeds = torch.cat([uncond_image_embeds, image_embeds]) # TODO ootd好像是uncond_image_embeds直接cat起来?
+            image_embeds = torch.cat([image_embeds, image_embeds]) # ootd的cat好像没有使用uncond_image_embeds相cat起来
+        image_embeds.to(dtype=self.text_encoder.dtype, device=self.device)
+        print("=========================================self.text_encoder.dtype = ####", self.text_encoder.dtype)
+        added_cond_kwargs = {"image_embeds": image_embeds}
+        
         # 获取服装嵌入
         prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
         prompt_image = self.image_encoder(prompt_image).image_embeds.unsqueeze(1)
@@ -192,13 +201,13 @@ class VTONModel(pl.LightningModule):
 
         # TODO 参数设置, 如果 num_images_per_prompt = 1 和 do_classifier_free_guidance = False，则与原来代码一样?
         num_images_per_prompt = 1 # TODO 每个prompt生成一张图像就好
-        do_classifier_free_guidance = False
         image_guidance_scale = 2.0 # TODO edit
         batch_size = prompt_embeds.shape[0]
 
 
         # prompt_embeds = prompt_embeds.to(self.device)
         prompt_embeds = prompt_embeds.to(dtype=self.text_encoder.dtype, device=self.device)
+        prompt_embeds_vton = prompt_embeds_vton.to(dtype=self.text_encoder.dtype, device=self.device)
         # print("-------------------------------------------_encode_prompt prompt_embeds.shape111111 = ", prompt_embeds.shape)
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings for each generation per prompt, using mps friendly method
@@ -218,7 +227,7 @@ class VTONModel(pl.LightningModule):
         
         num_inference_steps =  20
         # 4. set timesteps
-        MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
+        MODEL_PATH = "/home/lenovo/work/sjj/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
         scheduler = UniPCMultistepScheduler.from_pretrained(MODEL_PATH, subfolder="scheduler")
         scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = scheduler.timesteps
@@ -286,60 +295,54 @@ class VTONModel(pl.LightningModule):
                 garm_latents, 0, encoder_hidden_states=prompt_embeds, return_dict=False
             )
         
-        image_embeds = self.ip_image_encoder(image_garm).image_embeds
-        uncond_image_embeds = torch.zeros_like(image_embeds) # TODO 这个需要用到吗
-        if do_classifier_free_guidance:
-            # image_embeds = torch.cat([uncond_image_embeds, image_embeds]) # TODO ootd好像是uncond_image_embeds直接cat起来?
-            image_embeds = torch.cat([image_embeds, image_embeds]) # ootd的cat好像没有使用uncond_image_embeds相cat起来
-        added_cond_kwargs = {"image_embeds": image_embeds}
-        
-        for i, t in enumerate(tqdm(timesteps, desc="Sampling", total=num_inference_steps)):
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            # print ("-----t = ", t,"--------timesteps = ", timesteps,"----latent_model_input.shape = ", latent_model_input.shape)
-            # concat latents, image_latents in the channel dimension
-            scaled_latent_model_input = scheduler.scale_model_input(latent_model_input, t)
-            # print("----vton_latents.shape = ", vton_latents.shape,"--scaled_latent_model_input.shape = ", scaled_latent_model_input.shape)
-            # vton_latents.shape要等于scaled_latent_model_input.shape，如果num_images_per_prompt = 1, 均为[batchsize*num, 4, 64, 48]
-            latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
-            # latent_vton_model_input = scaled_latent_model_input + vton_latents
+        with torch.cuda.amp.autocast(): # TODO 推理的时候也加上这句话，不然出现dtype问题
+            for i, t in enumerate(tqdm(timesteps, desc="Sampling", total=num_inference_steps)):
+                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                # print ("-----t = ", t,"--------timesteps = ", timesteps,"----latent_model_input.shape = ", latent_model_input.shape)
+                # concat latents, image_latents in the channel dimension
+                scaled_latent_model_input = scheduler.scale_model_input(latent_model_input, t)
+                # print("----vton_latents.shape = ", vton_latents.shape,"--scaled_latent_model_input.shape = ", scaled_latent_model_input.shape)
+                # vton_latents.shape要等于scaled_latent_model_input.shape，如果num_images_per_prompt = 1, 均为[batchsize*num, 4, 64, 48]
+                latent_vton_model_input = torch.cat([scaled_latent_model_input, vton_latents], dim=1)
+                # latent_vton_model_input = scaled_latent_model_input + vton_latents
 
-            spatial_attn_inputs = spatial_attn_outputs.copy()
+                spatial_attn_inputs = spatial_attn_outputs.copy()
 
-            noise_pred = self.unet_vton( 
-                latent_vton_model_input, # TODO 输入?
-                spatial_attn_inputs,
-                t,
-                encoder_hidden_states=prompt_embeds_vton,
-                added_cond_kwargs=added_cond_kwargs, # TODO add ip_adapter
-                return_dict=False,
-            )[0]
+                noise_pred = self.unet_vton( 
+                    latent_vton_model_input, # TODO 输入?
+                    spatial_attn_inputs,
+                    t,
+                    encoder_hidden_states=prompt_embeds_vton,
+                    added_cond_kwargs=added_cond_kwargs, # TODO add ip_adapter
+                    return_dict=False,
+                )[0]
 
-            # print("-------------------------------------do_classifier_free_guidance")
-            # perform guidance
-            if  do_classifier_free_guidance:
-                noise_pred_text_image, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = (
-                    noise_pred_text
-                    + image_guidance_scale * (noise_pred_text_image - noise_pred_text)
-                )
+                # print("-------------------------------------do_classifier_free_guidance")
+                # perform guidance
+                if  do_classifier_free_guidance:
+                    noise_pred_text_image, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = (
+                        noise_pred_text
+                        + image_guidance_scale * (noise_pred_text_image - noise_pred_text)
+                    )
 
 
-            # compute the previous noisy sample x_t -> x_t-1
-            latents = scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                # compute the previous noisy sample x_t -> x_t-1
+                latents = scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-            init_latents_proper = image_ori_latents * self.vae.config.scaling_factor
+                init_latents_proper = image_ori_latents * self.vae.config.scaling_factor
 
-            # repainting
-            if i < len(timesteps) - 1:
-                noise_timestep = timesteps[i + 1]
-                init_latents_proper = scheduler.add_noise(
-                    init_latents_proper, noise, torch.tensor([noise_timestep])
-                )
+                # repainting
+                if i < len(timesteps) - 1:
+                    noise_timestep = timesteps[i + 1]
+                    init_latents_proper = scheduler.add_noise(
+                        init_latents_proper, noise, torch.tensor([noise_timestep])
+                    )
 
-            # latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
-            # TODO 我没有mask, 直接latents生成看下是否可行
+                # latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
+                # TODO 我没有mask, 直接latents生成看下是否可行
 
-            # progress_bar.update()
+                # progress_bar.update()
 
         image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0] # TODO vae.decode
         
