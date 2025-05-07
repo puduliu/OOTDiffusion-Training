@@ -148,7 +148,7 @@ class StableDiffusionPipeline(
         scheduler: KarrasDiffusionSchedulers,
         safety_checker: StableDiffusionSafetyChecker,
         feature_extractor: CLIPImageProcessor,
-        image_encoder: CLIPVisionModelWithProjection = None,
+        image_encoder: CLIPVisionModelWithProjection = None, # TODO 没有这个参数的
         requires_safety_checker: bool = True,
     ):
         super().__init__()
@@ -458,6 +458,7 @@ class StableDiffusionPipeline(
 
         if not isinstance(image, torch.Tensor):
             image = self.feature_extractor(image, return_tensors="pt").pixel_values
+            print("=======================================feature_extractor image.shape = ", image.shape) # torch.Size([1, 3, 224, 224])
 
         image = image.to(device=device, dtype=dtype)
         image_embeds = self.image_encoder(image).image_embeds
@@ -657,7 +658,7 @@ class StableDiffusionPipeline(
         )
         mask = mask.to(device=device, dtype=dtype)
 
-        if batch_size > image_latents.shape[0] and batch_size % image_latents.shape[0] == 0:
+        if batch_size > image_latents.shape[0] and batch_size % image_latents.shape[0] == 0: # TODO num_images_per_prompt生成多张的时候需要复制的意思吗
             additional_image_per_prompt = batch_size // image_latents.shape[0]
             image_latents = torch.cat([image_latents] * additional_image_per_prompt, dim=0)
             mask = torch.cat([mask] * additional_image_per_prompt, dim=0)
@@ -948,14 +949,18 @@ class StableDiffusionPipeline(
         # Here we concatenate the unconditional and text embeddings into a single batch
         # to avoid doing two forward passes
         if self.do_classifier_free_guidance:
-            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds]) 
+            prompt_embeds = torch.cat([prompt_embeds, prompt_embeds]) 
+            # prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds]) # TODO check是否要用 negative_prompt_embeds
+            # TODO negative_prompt_embeds 和 prompt_embeds的尺寸得确保一样,看看训练是如何设置的
             # TODO 这个对比一下 ootd, 它好像是将([prompt_embeds, prompt_embeds]) cat在一起
 
         if ip_adapter_image is not None: # TODO 这部分源码保留，用于ipadapter试试
             image_embeds, negative_image_embeds = self.encode_image(ip_adapter_image, device, num_images_per_prompt)
             print("======================================ip_adapter_image to image_embeds#########################")
             if self.do_classifier_free_guidance:
-                image_embeds = torch.cat([negative_image_embeds, image_embeds])
+                # prompt_embeds = torch.cat([prompt_embeds, prompt_embeds]) # TODO 这个错了吧，看下源码, 应该是image_embeds = torch.cat([image_embeds, image_embeds])?
+                image_embeds = torch.cat([image_embeds, image_embeds])
+                # image_embeds = torch.cat([negative_image_embeds, image_embeds])
 
         # 4. Prepare timesteps
         # timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
@@ -970,13 +975,18 @@ class StableDiffusionPipeline(
         image_garm = self.image_processor.preprocess(image_garm)
         image_vton = self.image_processor.preprocess(image_vton)
         image_ori = self.image_processor.preprocess(image_ori)
+        print("######################### vton_latents tensor shape1111", image_vton.shape)
+        print("######################### vton_latents tensor range1111", image_vton.min(), image_vton.max()) # [-1,1]
         import numpy as np
         mask = np.array(mask)
         mask[mask < 127] = 0
         mask[mask >= 127] = 255
         mask = torch.tensor(mask)
-        mask = mask / 255
+        mask = mask / 255 # TODO 归一化吗
         mask = mask.reshape(-1, 1, mask.size(-2), mask.size(-1))
+        print("######################### mask shape1111", mask.shape) # [1, 1, 512, 384]
+        print("######################### mask range1111",mask.min(), mask.max()) # [0, 1]
+        # TODO mask没有进行vae.encode, 本来就是0,1值没有必要. 训练的时候如果有需要就加入mask
 
         # 4. set timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -1004,6 +1014,9 @@ class StableDiffusionPipeline(
             self.do_classifier_free_guidance,
             generator,
         )
+        print("######################### mask_latents vton_latents shape2222",mask_latents.shape, vton_latents.shape)
+        print("######################### mask_latents range2222",mask_latents.min(), mask_latents.max()) # [0, 1]
+        print("######################### vton_latents range2222",vton_latents.min(), vton_latents.max()) # [-255, 255]?
 
         height, width = vton_latents.shape[-2:]
         height = height * self.vae_scale_factor

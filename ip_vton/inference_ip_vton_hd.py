@@ -77,6 +77,7 @@ class IPAdapterHD:
         # TODO check ip adapter 如果你坚持想用标准 clip-vit-large-patch14 作为 image encoder，
         # 那你必须替换掉 UNet 中的 encoder_hid_proj 模块，让它接受 768 维输入
         
+        print("=============================1111self.unet.encoder_hid_proj = ", unet_vton.encoder_hid_proj)
         #TODO image_encoder ootd有输入这个吗 
         self.pipe = StableDiffusionPipeline.from_pretrained(
             MODEL_PATH,
@@ -88,11 +89,12 @@ class IPAdapterHD:
             use_safetensors=True,
             safety_checker=None,
             requires_safety_checker=False,
-            image_encoder = self.ip_image_encoder # TODO 这个是我另加的
+            # image_encoder = self.ip_image_encoder # TODO 这个是我另加的
         ).to(self.gpu_id)
+        # TODO feature_extractor, 这个不初始化吗
         
-        # self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
-        
+        self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
+        print("=============================2222self.unet.encoder_hid_proj = ", unet_vton.encoder_hid_proj)
         # print("=======================self.unet.encoder_hid_proj.image_embeds.weight = ", self.pipe.unet.encoder_hid_proj.image_embeds.weight)
         
         # TODO load_ip_adapter完self.encoder_hid_proj = ImageProjection, self.config.encoder_hid_dim_type =  ip_image_proj
@@ -136,6 +138,11 @@ class IPAdapterHD:
         generator = torch.manual_seed(seed)
 
         with torch.no_grad():
+            ip_adapter_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.gpu_id)
+            # TODO pipe里面是用feature_extractor, feature_extractor = CLIPImageProcessor()， 看一下auto_processor是什么
+            print("=================================ip_adapter_image = ", type(ip_adapter_image))
+            # TODO ip_adapter_image
+
             prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").to(self.gpu_id)
             prompt_image = self.image_encoder(prompt_image.data['pixel_values']).image_embeds
             prompt_image = prompt_image.unsqueeze(1)
@@ -146,11 +153,11 @@ class IPAdapterHD:
             print("===============================================image_garm.type = ", type(image_garm)) # PIL.Image.Image
             if model_type == 'hd':
                 prompt_embeds = self.text_encoder(self.tokenize_captions([""], 2).to(self.gpu_id))[0] # TODO 最大编码为77, 257不行
-                prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
+                prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton, 77).to(self.gpu_id))[0]
                 prompt_embeds_vton[:, 1:] = prompt_image[:] 
             elif model_type == 'dc':
                 prompt_embeds = self.text_encoder(self.tokenize_captions([category], 3).to(self.gpu_id))[0]
-                prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
+                prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton, 77).to(self.gpu_id))[0]
                 prompt_embeds_vton = torch.cat([prompt_embeds_vton, prompt_image], dim=1)
             else:
                 raise ValueError("model_type must be \'hd\' or \'dc\'!")
@@ -165,8 +172,8 @@ class IPAdapterHD:
                         num_inference_steps=num_steps,
                         image_guidance_scale=image_scale,
                         num_images_per_prompt=num_samples,
-                        # ip_adapter_image=cloth_img,
-                        # negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality", 
+                        ip_adapter_image=ip_adapter_image,
+                        negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality", 
                         generator=generator,
             ).images
 

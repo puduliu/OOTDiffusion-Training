@@ -169,3 +169,29 @@ stablediffusionpipeline用的image encoder是IP adapter自带的?
 # TODO check ootd 和 vton的prompt_embeds 是不一样的，注意看推理的时候有没有影响，训练和推理要确保一样
 vton的推理:如果negative_prompt_embeds 是空的，好像是对""空字符串进行编码
 ootd是将 两个prompt_embeds cat起来， 源码是negative_prompt_embeds和prompt_embeds相cat起来
+
+----------------------------------------------------0430
+unet_garm只用文本效果好像有点差，是不是unet_garm和unet_vton prompt一样比较好，试试纯文本试试
+实验n个 epoch，以保留图像细节为主
+
+============0504
+用clip 的 text encoder和image encoder效果不好(原ootd)，试一下推理效果，对比ipadapter是否起到效果
+
+============0505
+caption = "A cloth"  和 caption = ""  要跟推理一致，看一下别人有没有进行修改，记得更改
+
+============0506
+使用ootd预训练unet_garm效果好了，去确认下为什么用预先训练的sd 1.5效果不好.
+
+先推理看看mask如何使用的,再训练. 训练使用提前mask好的看看能不能提升训练速度. 看看提升多少
+
+
+============0507
+需要去看一下数据集读取顺序变了没有(数据集读取顺序没有变)
+知道了原因sd1.5 不专注服装，注意力分布比较泛——人、背景、手势、脸、衣服都可能有注意力
+看有没有办法在低显存的情况下进行unet_garm和unet_vton的联合训练
+
+down_blocks\mid_block\upsample_block
+
+Stable Diffusion 中 UNet 引入文本条件信息的关键模块。本质上是 Transformer 中的 Cross-Attention（交叉注意力）机制。始终启用： 只要你在生成时输入了 prompt_embeds（来自文本 prompt），这些 CrossAttention 就会参与工作。
+Stable Diffusion 1.5 的 UNet 中就包含 Cross-Attn 模块。它们集中出现在：mid_block.attn1, up_blocks[i].attentions[j]（某些上采样块中）

@@ -8,8 +8,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from preprocess.openpose.run_openpose import OpenPose
 from preprocess.humanparsing.run_parsing import Parsing
-from ip_vton.inference_ootd_hd import IPAdapterHD
-from ip_vton.inference_ootd_dc import IPAdapterDC
+from ip_vton.inference_ip_garm_vton_text_image_hd import IPAdapterHD
+from ip_vton.inference_vton_dc import IPAdapterDC
 
 
 import argparse
@@ -25,7 +25,7 @@ parser.add_argument('--sample', type=int, default=4, required=False)
 parser.add_argument('--seed', type=int, default=-1, required=False)
 args = parser.parse_args()
 
-
+# TODO check是不是只有在推理的时候使用到了 OpenPose 和 Parsing
 openpose_model = OpenPose(args.gpu_id)
 parsing_model = Parsing(args.gpu_id)
 
@@ -61,7 +61,7 @@ if __name__ == '__main__':
     keypoints = openpose_model(model_img.resize((384, 512)))
     model_parse, _ = parsing_model(model_img.resize((384, 512))) # TODO check  这是通过keypoints 和 model_parse 自动换装吗
 
-    mask, mask_gray = get_mask_location(model_type, category_dict_utils[category], model_parse, keypoints)
+    mask, mask_gray = get_mask_location(model_type, category_dict_utils[category], model_parse, keypoints) # TODO mask为255, mask_gray为127没啥区别?
     mask = mask.resize((768, 1024), Image.NEAREST)
     mask_gray = mask_gray.resize((768, 1024), Image.NEAREST)
     

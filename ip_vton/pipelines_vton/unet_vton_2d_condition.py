@@ -1046,8 +1046,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             image_embeds = added_cond_kwargs.get("image_embeds")
             image_embeds = self.encoder_hid_proj(image_embeds).to(encoder_hidden_states.dtype)
             # TODO ip adapter concat?
-            print("==================================================cat([encoder_hidden_states, image_embeds]")
-            print("====encoder_hidden_states.shape",encoder_hidden_states.shape,"======image_embeds.shape = ", image_embeds.shape)
+            # print("==================================================cat([encoder_hidden_states, image_embeds]")
+            # print("====encoder_hidden_states.shape",encoder_hidden_states.shape,"======image_embeds.shape = ", image_embeds.shape)
             encoder_hidden_states = torch.cat([encoder_hidden_states, image_embeds], dim=1)
             # print("====encoder_hidden_states_cat.shape",encoder_hidden_states.shape)
 

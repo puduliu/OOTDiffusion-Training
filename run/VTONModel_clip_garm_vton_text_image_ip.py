@@ -40,7 +40,6 @@ class VTONModel(pl.LightningModule):
         image_ori = batch['img_ori'].to(self.device)
         prompt = batch["prompt"] # TODO ['A cloth', 'A cloth'] 有文本提示词的，但是这样训练有用，是否是因为没有冻结unet_garm
         # print("----------------------------------------prompt = ", prompt) # TODO检查下有没有内容，推理的时候没有内容
-        prompt_vton = [f'A model is wearing {item}' for item in prompt]
 
         
         with torch.no_grad():
@@ -60,24 +59,16 @@ class VTONModel(pl.LightningModule):
 
         
         if self.model_type == 'hd':
-            # TODO check text_encoder
-            prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0] #TODO 给unet_gram
-            # text_encoder返回得是BaseModelOutputWithPooling ? [0]取得是last_hidden_state打印看看
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            # 'A model is wearing A cloth传给 vton，应该继续把prompt_image(garm信息传给vton)
-            prompt_embeds_vton[:, 1:] = prompt_image[:] # TODO 只给vton输入prompt_image
-            # 第一个 token (prompt_embeds_vton[:, 0]) 通常是 特殊的起始符号，但经过 transformer 后，它变成了总结整句话的一个向量。有一定的信息
+            prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
+            prompt_embeds[:, 1:] = prompt_image[:]
 
         elif self.model_type == 'dc':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
-            # TODO dc这个情况的话,提示词要改一下
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton = torch.cat([prompt_embeds_vton, prompt_image], dim=1) # TODO 只给vton输入prompt_image
+            prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1)
         else:
             raise ValueError("model_type must be 'hd' or 'dc'!")
 
         prompt_embeds = prompt_embeds.to(self.device)
-        prompt_embeds_vton = prompt_embeds_vton.to(self.device)
 
         # 预处理图片
         image_garm = self.image_processor.preprocess(image_garm)
@@ -111,7 +102,7 @@ class VTONModel(pl.LightningModule):
                
             # 服装融合
             _, spatial_attn_outputs = self.unet_garm(
-                image_latents_garm, 0, encoder_hidden_states=prompt_embeds, return_dict=False
+                image_latents_garm, 0, encoder_hidden_states=prompt_embeds, return_dict=False # TODO 训练不需要do_classifier_free_guidance吗
             )
         
             # 试穿去噪
@@ -119,7 +110,7 @@ class VTONModel(pl.LightningModule):
                 latent_vton_model_input, 
                 spatial_attn_outputs.copy(), 
                 timesteps, 
-                encoder_hidden_states=prompt_embeds_vton, 
+                encoder_hidden_states=prompt_embeds, 
                 added_cond_kwargs=added_cond_kwargs, # TODO add ip_adapter
                 return_dict=False
             )[0]  
@@ -172,9 +163,7 @@ class VTONModel(pl.LightningModule):
         image_vton = batch['img_vton'].to(self.device) # TODO 对模特衣服进行mask后的目标图像
         image_ori = batch['img_ori'].to(self.device) # TODO 原图
         prompt = batch["prompt"]
-        prompt_vton = [f'A model is wearing {item}' for item in prompt]
         print("---------------------------------------prompt = ", prompt)
-        print("---------------------------------------prompt_vton = ", prompt_vton)
 
         image_ip = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.device)
         image_embeds = self.ip_image_encoder(image_ip).image_embeds
@@ -192,12 +181,10 @@ class VTONModel(pl.LightningModule):
 
         if self.model_type == 'hd':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton[:, 1:] = prompt_image[:] 
+            prompt_embeds[:, 1:] = prompt_image[:]
         elif self.model_type == 'dc':
             prompt_embeds = self.text_encoder(self.tokenize_captions(prompt).to(self.device))[0]
-            prompt_embeds_vton = self.text_encoder(self.tokenize_captions(prompt_vton).to(self.device))[0]
-            prompt_embeds_vton = torch.cat([prompt_embeds_vton, prompt_image], dim=1)
+            prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1)
         else:
             raise ValueError("model_type must be 'hd' or 'dc'!")
 
@@ -209,7 +196,6 @@ class VTONModel(pl.LightningModule):
 
         # prompt_embeds = prompt_embeds.to(self.device)
         prompt_embeds = prompt_embeds.to(dtype=self.text_encoder.dtype, device=self.device)
-        prompt_embeds_vton = prompt_embeds_vton.to(dtype=self.text_encoder.dtype, device=self.device)
         # print("-------------------------------------------_encode_prompt prompt_embeds.shape111111 = ", prompt_embeds.shape)
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings for each generation per prompt, using mps friendly method
@@ -314,7 +300,7 @@ class VTONModel(pl.LightningModule):
                     latent_vton_model_input, # TODO 输入?
                     spatial_attn_inputs,
                     t,
-                    encoder_hidden_states=prompt_embeds_vton,
+                    encoder_hidden_states=prompt_embeds,
                     added_cond_kwargs=added_cond_kwargs, # TODO add ip_adapter
                     return_dict=False,
                 )[0]

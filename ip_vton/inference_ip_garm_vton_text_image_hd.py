@@ -29,8 +29,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 VIT_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/clip-vit-large-patch14"
 VAE_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
-UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd"
-# UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet"
+UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints"
 MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
 
 class IPAdapterHD:
@@ -77,6 +76,7 @@ class IPAdapterHD:
         # TODO check ip adapter 如果你坚持想用标准 clip-vit-large-patch14 作为 image encoder，
         # 那你必须替换掉 UNet 中的 encoder_hid_proj 模块，让它接受 768 维输入
         
+        print("=============================1111self.unet.encoder_hid_proj = ", unet_vton.encoder_hid_proj)
         #TODO image_encoder ootd有输入这个吗 
         self.pipe = StableDiffusionPipeline.from_pretrained(
             MODEL_PATH,
@@ -88,11 +88,13 @@ class IPAdapterHD:
             use_safetensors=True,
             safety_checker=None,
             requires_safety_checker=False,
-            image_encoder = self.ip_image_encoder # TODO 这个是我另加的
+            # image_encoder = self.ip_image_encoder # TODO 这个是我另加的, load_ip_adapter 会加载编码器，可以不用传
         ).to(self.gpu_id)
+        # TODO feature_extractor, 这个不初始化吗
         
-        # self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
-        
+        self.pipe.load_ip_adapter("../IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
+        # TODO 也可以直接给unet_vton加上架构加载权重，不用load ip adapter
+        print("=============================2222self.unet.encoder_hid_proj = ", unet_vton.encoder_hid_proj)
         # print("=======================self.unet.encoder_hid_proj.image_embeds.weight = ", self.pipe.unet.encoder_hid_proj.image_embeds.weight)
         
         # TODO load_ip_adapter完self.encoder_hid_proj = ImageProjection, self.config.encoder_hid_dim_type =  ip_image_proj
@@ -110,6 +112,7 @@ class IPAdapterHD:
             MODEL_PATH,
             subfolder="text_encoder",
         ).to(self.gpu_id)
+
 
     def tokenize_captions(self, captions, max_length):
         inputs = self.tokenizer(
@@ -137,30 +140,29 @@ class IPAdapterHD:
         generator = torch.manual_seed(seed)
 
         with torch.no_grad():
+            ip_adapter_image = self.auto_processor(images=image_garm, return_tensors="pt").data['pixel_values'].to(self.gpu_id)
+            # TODO pipe里面是用feature_extractor, feature_extractor = CLIPImageProcessor()， 看一下auto_processor是什么
+            # print("=================================ip_adapter_image = ", type(ip_adapter_image)) # type = Tensor
+            print("=================================ip_adapter_image.shape = ", ip_adapter_image.shape) # type = Tensor ([1, 3, 224, 224])
+            
+            # TODO ip_adapter_image
+
             prompt_image = self.auto_processor(images=image_garm, return_tensors="pt").to(self.gpu_id)
             prompt_image = self.image_encoder(prompt_image.data['pixel_values']).image_embeds
             prompt_image = prompt_image.unsqueeze(1)
-            print("===============================================image_garm.type = ", type(image_garm)) # PIL.Image.Image
             if model_type == 'hd':
-                # test_input = ["A cloth","A cloth"]
-                # prompt_embeds = self.text_encoder(self.tokenize_captions([""], 4).to(self.gpu_id))[0] # TODO max length不影响, 如果长度1不够会自动扩充. 设置为77，就是([1, 77, 768])
-                # print("#############################################prompt_embeds.shape test = ", prompt_embeds.shape) # ([1, 2, 768]), batch_size = 2的话是 torch.Size([2, 4, 768])
-                # TODO chck 是否是因为添加特殊字符 tokenizer 自动加特殊 token
-                
-                # TODO 这边不选择文本注入?
                 prompt_embeds = self.text_encoder(self.tokenize_captions([""], 2).to(self.gpu_id))[0] # TODO 最大编码为77, 257不行
-                # prompt_embeds = self.text_encoder(self.tokenize_captions(["A cloth"], 77).to(self.gpu_id))[0] # TODO 好像没有什么区别
-                print("------------------------------------------------prompt_embeds.shape1111 = ", prompt_embeds.shape) # ([1, 2, 768])
-                # self.tokenize_captions([""], 1) 就算 max len= 1也是生成([1, 2, 768])
                 prompt_embeds[:, 1:] = prompt_image[:]
             elif model_type == 'dc':
-                prompt_embeds = self.text_encoder(self.tokenize_captions([category], 3).to(self.gpu_id))[0]
+                prompt_embeds = self.text_encoder(self.tokenize_captions(category).to(self.gpu_id))[0]
                 prompt_embeds = torch.cat([prompt_embeds, prompt_image], dim=1)
             else:
                 raise ValueError("model_type must be \'hd\' or \'dc\'!")
 
             # cloth_img = Image.open("/home/zyserver/work/lpd/OOTDiffusion-Training/run/examples/garment/10297_00.jpg").resize((768, 1024))
             # cloth_img = cloth_img.resize((384, 512), Image.NEAREST)
+            print("=================================image_garm type= ", type(image_garm)) # <class 'PIL.Image.Image'>
+
             images = self.pipe(prompt_embeds=prompt_embeds,
                         image_garm=image_garm,
                         image_vton=image_vton, 
@@ -169,8 +171,8 @@ class IPAdapterHD:
                         num_inference_steps=num_steps,
                         image_guidance_scale=image_scale,
                         num_images_per_prompt=num_samples,
-                        ip_adapter_image=image_garm,
-                        negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality", # 这个感觉没起作用
+                        ip_adapter_image=image_garm, #TODO 报错，检查下
+                        negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality", 
                         generator=generator,
             ).images
 
