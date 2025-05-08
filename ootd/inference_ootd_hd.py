@@ -32,8 +32,8 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 VIT_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/clip-vit-large-patch14"
 VAE_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
-UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints"
-# UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd"
+# UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints"
+UNET_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd"
 MODEL_PATH = "/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5"
 
 class OOTDiffusionHD:
@@ -117,7 +117,7 @@ class OOTDiffusionHD:
             prompt_image = self.image_encoder(prompt_image.data['pixel_values']).image_embeds
             prompt_image = prompt_image.unsqueeze(1)
             if model_type == 'hd':
-                prompt_embeds = self.text_encoder(self.tokenize_captions(["A cloth"], 77).to(self.gpu_id))[0] # TODO check下有啥不一样 A cloth，好像确实影响不大
+                prompt_embeds = self.text_encoder(self.tokenize_captions([""], 2).to(self.gpu_id))[0] # TODO check下有啥不一样 A cloth，好像确实影响不大
                 print("-------------------------------------------------------prompt_embeds.shape = ", prompt_embeds.shape)
                 prompt_embeds[:, 1:] = prompt_image[:] # TODO 这是直接替换?
             elif model_type == 'dc':

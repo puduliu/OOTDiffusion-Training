@@ -165,7 +165,6 @@ class VTONModel(pl.LightningModule):
         return self.train_data_loader
 
 
-    @torch.no_grad()
     def log_images(self, batch, **kwargs):
         do_classifier_free_guidance = False
         image_garm = batch['img_garm'].to(self.device) # TODO 要换的衣服

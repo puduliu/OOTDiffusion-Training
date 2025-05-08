@@ -12,11 +12,9 @@ from transformers import AutoProcessor, CLIPVisionModelWithProjection
 from diffusers.optimization import get_scheduler 
 from diffusers.models import AutoencoderKL, UNet2DConditionModel
 from diffusers import UniPCMultistepScheduler, PNDMScheduler
-# from pipelines_ootd.unet_vton_2d_condition import UNetVton2DConditionModel
-# from pipelines_ootd.unet_garm_2d_condition import UNetGarm2DConditionModel
-sys.path.append(r'../ip_vton')
-from pipelines_vton.unet_garm_2d_condition import UNet2DConditionModel as UNetGarm2DConditionModel#TODO 都是要修改导入的，因为要输出特征，确认下和源码有何不同
-from pipelines_vton.unet_vton_2d_condition import UNet2DConditionModel as UNetVton2DConditionModel
+from pipelines_ootd.unet_vton_2d_condition import UNetVton2DConditionModel
+from pipelines_ootd.unet_garm_2d_condition import UNetGarm2DConditionModel
+
 # train tools import
 from tqdm import tqdm
 import torch
@@ -314,10 +312,7 @@ for epoch in tqdm(range(first_epoch, train_epochs)):
             noise_loss= F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
             loss = noise_loss
             
-            print("====================vae.istraining = ",vae.training
-                  ,"=image_encoder.istraining = ",image_encoder.training
-                  ,"=unet_vton.istraining = ",unet_vton.training) # TODO False, False, True
-            # torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
 
         # backpropagation
         scaler.scale(loss).backward()
@@ -329,7 +324,7 @@ for epoch in tqdm(range(first_epoch, train_epochs)):
             scaler.update()
             optimizer.zero_grad()
             # lr_scheduler.step()
-            # torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
         logger.info(f"Loss: {loss.item()} at step {step} in epoch {epoch}") 
         epoch_loss += loss.item()
 

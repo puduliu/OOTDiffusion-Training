@@ -112,13 +112,17 @@ vae = AutoencoderKL.from_pretrained(args.vae_path)
 # unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/run/checkpoints/unet_vton",use_safetensors=True)
 
 # TODO 用训练好的unet_garm 试试训练效果? 只训练unet_vton?
-unet_garm = UNetGarm2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd/unet_garm",use_safetensors=True)
-unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet",use_safetensors=True)
+# unet_garm = UNetGarm2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/ootd_hd/unet_garm",use_safetensors=True)
+# unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet",use_safetensors=True)
 
 
 # TODO 都用sd 1.5的预训练模型
-# unet_garm = UNetGarm2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet",use_safetensors=True)
-# unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet",use_safetensors=True)
+unet_garm = UNetGarm2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet",use_safetensors=True)
+unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet",use_safetensors=True)
+
+# TODO 都用sd 1.5 fp16的预训练模型
+# unet_garm = UNetGarm2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet_fp16",use_safetensors=True)
+# unet_vton = UNetVton2DConditionModel.from_pretrained("/home/zyserver/work/lpd/OOTDiffusion-Training/checkpoints/stable-diffusion-v1-5/unet_fp16",use_safetensors=True)
 
 noise_scheduler = PNDMScheduler.from_pretrained(args.scheduler_path)
 auto_processor = AutoProcessor.from_pretrained(args.vit_path)
@@ -162,6 +166,18 @@ if args.mixed_precision == "fp16":
 elif args.mixed_precision == "bf16":
     weight_dtype = torch.bfloat16
 print("------------------------------------------------------------weight_dtype = ", weight_dtype)
+
+vae.to(device,dtype=weight_dtype)
+unet_garm.to(device) # TODO UNet中有某些模块不支持float16，不能设置为dtype=torch.float16
+unet_vton.to(device)
+image_encoder.to(device,dtype=weight_dtype)
+text_encoder.to(device,dtype=weight_dtype)
+
+vae.requires_grad_(False)
+unet_garm.requires_grad_(True)
+unet_vton.requires_grad_(True)
+image_encoder.requires_grad_(False)
+text_encoder.requires_grad_(False)
 # vae.to(device,dtype=weight_dtype)
 # unet_garm.to(device)
 # unet_vton.to(device) # TODO unet_garm和unet_vton设置 dtype会报错，看下什么原因
@@ -169,14 +185,14 @@ print("------------------------------------------------------------weight_dtype 
 # text_encoder.to(device,dtype=weight_dtype)
 
 
-from pytorch_lightning.callbacks import ModelCheckpoint
-# **保存 Checkpoint（仅保存模型权重，减少显存占用）** TODO callback实际触发的回调是on_train_epoch_end
-checkpoint_callback = ModelCheckpoint(
-    dirpath="checkpoints",     # 指定模型保存路径
-    filename="epoch={epoch}-step={step}-hd",  # 设置保存文件的命名格式
-    save_weights_only=False,   # **True只保存权重，减少显存占用**   False显存会溢出
-    every_n_epochs=1,          # **每 5 个 epoch 保存一次**
-) # TODO ModelCheckpoint 并不会保存 模型结构信息（比如你把 in_channels=4 改成 in_channels=8）
+# from pytorch_lightning.callbacks import ModelCheckpoint
+# # **保存 Checkpoint（仅保存模型权重，减少显存占用）** TODO callback实际触发的回调是on_train_epoch_end
+# checkpoint_callback = ModelCheckpoint(
+#     dirpath="checkpoints",     # 指定模型保存路径
+#     filename="epoch={epoch}-step={step}-hd",  # 设置保存文件的命名格式
+#     save_weights_only=False,   # **True只保存权重，减少显存占用**   False显存会溢出
+#     every_n_epochs=1,          # **每 5 个 epoch 保存一次**
+# ) # TODO ModelCheckpoint 并不会保存 模型结构信息（比如你把 in_channels=4 改成 in_channels=8）
 
 from logger import ImageLogger
 logger_freq = 1000
@@ -184,9 +200,14 @@ logger = ImageLogger(batch_frequency=logger_freq) # TODO 看一下image logger�
 
 accumulate_grad_batches=1 
 
-trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu", 
+# trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu", 
+#                      max_epochs=50, callbacks=[logger], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+
+trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu",
                      max_epochs=50, callbacks=[logger], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
 
+
+# trainer = pl.Trainer(gpus=1, precision=16, accelerator="gpu", max_epochs=50)
 
 # 实例化模型
 model = VTONModel(
@@ -200,7 +221,7 @@ model = VTONModel(
     noise_scheduler=noise_scheduler, 
     auto_processor=auto_processor, 
     train_data_loader=train_dataloader, 
-    learning_rate=1e-4,
+    learning_rate=1e-5, # 冻结unet_garm 1e-4可以训练， 同时训练导致loss = nan 
     model_type="hd"
 )
 

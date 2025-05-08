@@ -60,6 +60,9 @@ class ImageLogger(Callback):
                 if isinstance(images[k], torch.Tensor):
                     images[k] = images[k].detach().cpu()
                     if self.clamp:
+                        # 修复 float16 在 CPU 上不能 clamp 的问题
+                        if images[k].dtype == torch.float16:
+                            images[k] = images[k].to(torch.float32)
                         images[k] = torch.clamp(images[k], -1., 1.)
 
             self.log_local(pl_module.logger.save_dir, split, images,
