@@ -1,0 +1,13 @@
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=1 python inference.py --vitonhd_dataroot /media/jqzhu/941A7DD31A7DB33A/lpd/download/VITON-HD --output_dir output1 --test_order paired --category 0 --mixed_precision fp16 --compute_metrics --dataset vitonhd
+
+CUDA_VISIBLE_DEVICES=2 python inference.py --vitonhd_dataroot /media/jqzhu/941A7DD31A7DB33A/lpd/download/VITON-HD --output_dir output1 --test_order unpaired --category 0 --mixed_precision fp16 --compute_metrics --dataset vitonhd
+
+
+python run/utils/val_metrics.py --gen_folder /media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/output1 --dataset vitonhd --vitonhd_dataroot /media/jqzhu/941A7DD31A7DB33A/lpd/download/VITON-HD --test_order paired --category upper_body
+
+python run/utils/val_metrics.py --gen_folder /media/jqzhu/941A7DD31A7DB33A/lpd/OOTDiffusion-Training/output1 --dataset vitonhd --vitonhd_dataroot /media/jqzhu/941A7DD31A7DB33A/lpd/download/VITON-HD --test_order unpaired --category upper_body

@@ -16,143 +16,43 @@ class VITONDataset(data.Dataset):
         self.data_path = osp.join(args.dataset_dir,type)
         self.transform = transforms.Compose([transforms.ToTensor(),
         ])
-        
-        img_names = [] # model image
-        garm_names = []  # cloth image
-        
+        self.order = args.test_order
+        self.img_names = [] # model image
+        self.garm_names = []  # cloth image
+
         with open(osp.join(args.dataset_dir,f"{type}_pairs.txt"), 'r') as f:
             for line in f.readlines():
-                img_name, garm_name = line.strip().split()
-                img_names.append(img_name)
-                garm_names.append(garm_name)
-
-        self.img_names = img_names    
-        self.garm_names = dict()
-        
-        # paired model img and cloth img have the same name
-        self.garm_names['paired'] = img_names
-
-    # def get_img_agnostic(self, img, parse, pose_data):
-    #     print("===============================================get_img_agnostic")
-    #     parse_array = np.array(parse)
-    #     parse_head = ((parse_array == 4).astype(np.float32) +
-    #                   (parse_array == 13).astype(np.float32))
-    #     parse_lower = ((parse_array == 9).astype(np.float32) +
-    #                    (parse_array == 12).astype(np.float32) +
-    #                    (parse_array == 16).astype(np.float32) +
-    #                    (parse_array == 17).astype(np.float32) +
-    #                    (parse_array == 18).astype(np.float32) +
-    #                    (parse_array == 19).astype(np.float32))
-
-        
-    #     agnostic = img.copy()
-    #     agnostic_draw = ImageDraw.Draw(agnostic)
-
-    #     length_a = np.linalg.norm(pose_data[5] - pose_data[2])
-    #     length_b = np.linalg.norm(pose_data[12] - pose_data[9])
-    #     point = (pose_data[9] + pose_data[12]) / 2
-    #     pose_data[9] = point + (pose_data[9] - point) / length_b * length_a
-    #     pose_data[12] = point + (pose_data[12] - point) / length_b * length_a
-        
-    #     r = int(length_a / 16) + 1
-
-    #     # mask torso
-    #     for i in [9, 12]:
-    #         pointx, pointy = pose_data[i]
-    #         agnostic_draw.ellipse((pointx - r * 3, pointy - r * 6, pointx + r * 3, pointy + r * 6), "gray", "gray")
-    #     agnostic_draw.line([tuple(pose_data[i]) for i in [2, 9]], "gray", width=r * 6)
-    #     agnostic_draw.line([tuple(pose_data[i]) for i in [5, 12]], "gray", width=r * 6)
-    #     agnostic_draw.line([tuple(pose_data[i]) for i in [9, 12]], "gray", width=r * 12)
-    #     agnostic_draw.polygon([tuple(pose_data[i]) for i in [2, 5, 12, 9]], "gray", "gray")
-
-    #     # mask neck
-    #     pointx, pointy = pose_data[1]
-    #     agnostic_draw.rectangle((pointx - r * 5, pointy - r * 9, pointx + r * 5, pointy), "gray", "gray")
-
-    #     # mask arms
-    #     agnostic_draw.line([tuple(pose_data[i]) for i in [2, 5]], "gray", width=r * 12)
-    #     for i in [2, 5]:
-    #         pointx, pointy = pose_data[i]
-    #         agnostic_draw.ellipse((pointx - r * 5, pointy - r * 6, pointx + r * 5, pointy + r * 6), "gray", "gray")
-    #     for i in [3, 4, 6, 7]:
-    #         if (pose_data[i - 1, 0] == 0.0 and pose_data[i - 1, 1] == 0.0) or (pose_data[i, 0] == 0.0 and pose_data[i, 1] == 0.0):
-    #             continue
-    #         agnostic_draw.line([tuple(pose_data[j]) for j in [i - 1, i]], "gray", width=r * 10)
-    #         pointx, pointy = pose_data[i]
-    #         agnostic_draw.ellipse((pointx - r * 5, pointy - r * 5, pointx + r * 5, pointy + r * 5), "gray", "gray")
-
-    #     for parse_id, pose_ids in [(14, [5, 6, 7]), (15, [2, 3, 4])]:
-    #         # mask_arm = Image.new('L', (self.fine_width, self.fine_height), 'white')
-    #         mask_arm = Image.new("L", (768, 1024), "white")
-    #         mask_arm_draw = ImageDraw.Draw(mask_arm)
-    #         pointx, pointy = pose_data[pose_ids[0]]
-    #         mask_arm_draw.ellipse((pointx - r * 5, pointy - r * 6, pointx + r * 5, pointy + r * 6), "black", "black")
-    #         for i in pose_ids[1:]:
-    #             if (pose_data[i - 1, 0] == 0.0 and pose_data[i - 1, 1] == 0.0) or (pose_data[i, 0] == 0.0 and pose_data[i, 1] == 0.0):
-    #                 continue
-    #             mask_arm_draw.line([tuple(pose_data[j]) for j in [i - 1, i]], "black", width=r * 10)
-    #             pointx, pointy = pose_data[i]
-    #             if i != pose_ids[-1]:
-    #                 mask_arm_draw.ellipse((pointx - r * 5, pointy - r * 5, pointx + r * 5, pointy + r * 5), "black", "black")
-    #         mask_arm_draw.ellipse((pointx - r * 4, pointy - r * 4, pointx + r * 4, pointy + r * 4), "black", "black")
-
-    #         parse_arm = (np.array(mask_arm) / 255) * (parse_array == parse_id).astype(np.float32)
-    #         agnostic.paste(img, None, Image.fromarray(np.uint8(parse_arm * 255), "L"))
-
-    #     agnostic.paste(img, None, Image.fromarray(np.uint8(parse_head * 255), "L"))
-    #     agnostic.paste(img, None, Image.fromarray(np.uint8(parse_lower * 255), "L"))
-    #     return agnostic
+                if type == 'train': # TODO 训练模式
+                    img_name, garm_name = line.strip().split()
+                    garm_name = img_name
+                else: # TODO 测试模式
+                    if self.order == 'paired':
+                        img_name, garm_name = line.strip().split()
+                        garm_name = img_name
+                    else:
+                        img_name, garm_name = line.strip().split()
+                        
+                self.img_names.append(img_name)
+                self.garm_names.append(garm_name)
 
     def __getitem__(self, index):
         img_name = self.img_names[index]
-        garm_name = {}
-        garm = {}
-        garm_mask = {}
-        
-        # load model garm garm_mask image
-        for key in self.garm_names:
-            garm_name[key] = self.garm_names[key][index]
-            garm[key] = Image.open(osp.join(self.data_path, 'cloth', garm_name[key])).convert('RGB')
-            garm[key] = transforms.Resize(self.img_width, interpolation=2)(garm[key])
-            garm_mask[key] = Image.open(osp.join(self.data_path, 'cloth-mask', garm_name[key]))
-            garm_mask[key] = transforms.Resize(self.img_width, interpolation=0)(garm_mask[key])
+        garm_name = self.garm_names[index]
+        garm = Image.open(osp.join(self.data_path, 'cloth', garm_name)).convert('RGB')
+        garm = transforms.Resize(self.img_width, interpolation=2)(garm)
+        garm_mask = Image.open(osp.join(self.data_path, 'cloth-mask', garm_name))
+        garm_mask = transforms.Resize(self.img_width, interpolation=0)(garm_mask)
 
-            garm[key] = self.transform(garm[key])  # [-1,1]
-            garm_mask_array = np.array(garm_mask[key])
-            garm_mask_array = (garm_mask_array >= 128).astype(np.float32)
-            garm_mask[key] = torch.from_numpy(garm_mask_array)  # [0,1]
-            garm_mask[key].unsqueeze_(0)
-
-        # TODO edit start
-        # load pose image
-        # pose_name = img_name.replace('.jpg', '_rendered.png')
-        # pose_rgb = Image.open(osp.join(self.data_path, 'openpose_img', pose_name))
-        # pose_rgb = transforms.Resize(self.img_width, interpolation=2)(pose_rgb)
-        # pose_rgb = self.transform(pose_rgb)  # [-1,1]
-
-        # load pose data
-        # pose_name = img_name.replace('.jpg', '_keypoints.json')
-        # with open(osp.join(self.data_path, 'openpose_json', pose_name), 'r') as f:
-        #     pose_label = json.load(f)
-        #     pose_data = pose_label['people'][0]['pose_keypoints_2d']
-        #     pose_data = np.array(pose_data)
-        #     pose_data = pose_data.reshape((-1, 3))[:, :2]
-
-        # load parsing image
-        # parse_name = img_name.replace('.jpg', '.png')
-        # parse_big = Image.open(osp.join(self.data_path, 'image-parse-v3', parse_name))
+        garm = self.transform(garm)  # [0,1] 没有normalize
+        garm_mask_array = np.array(garm_mask)
+        garm_mask_array = (garm_mask_array >= 128).astype(np.float32)
+        garm_mask = torch.from_numpy(garm_mask_array)  # [0,1]
+        garm_mask.unsqueeze_(0)
 
         # load person image 原图
         img_pil_big = Image.open(osp.join(self.data_path, 'image', img_name))
-        img_pil = transforms.Resize(self.img_width, interpolation=2)(img_pil_big)
+        img_pil = transforms.Resize(self.img_width, interpolation=2)(img_pil_big) # 对原图resize为512
         img = self.transform(img_pil)      
-        
-        # load masked vton image
-        # img_agnostic = self.get_img_agnostic(img_pil_big, parse_big, pose_data)
-        # img_agnostic = transforms.Resize(self.img_width, interpolation=2)(img_agnostic) # InterpolationMode.BILINEAR
-        # img_agnostic = self.transform(img_agnostic) 
-        # print("===========================================img_agnostic.shape1111 = ", img_agnostic.shape)
-        # TODO edit end
         
         # TODO 直接加载 masked vton image, 减少mask时间
         img_agnostic = Image.open(osp.join(self.data_path, 'agnostic-v3.3', img_name))
@@ -168,7 +68,7 @@ class VITONDataset(data.Dataset):
         
         
         # load caption
-        caption_name = garm_name["paired"].replace(".jpg", ".txt")
+        caption_name = garm_name.replace(".jpg", ".txt")
         caption_path = osp.join(self.data_path, 'cloth_caption', caption_name)
         if os.path.exists(caption_path):
             with open(caption_path, 'r') as file:
@@ -180,12 +80,12 @@ class VITONDataset(data.Dataset):
 
         result = {
             'img_name': img_name,
-            'garm_name': garm_name["paired"],
+            'garm_name': garm_name,
             'img_ori': img,
             'img_vton': img_agnostic,
-            'img_vton_mask': agnostic_mask,      # TODO 新增模特的mask
-            'img_garm': garm["paired"],
-            'img_garm_mask': garm_mask["paired"], # TODO 新增衣服的mask
+            'img_vton_mask': agnostic_mask, # TODO 新增模特的mask
+            'img_garm': garm,
+            'img_garm_mask': garm_mask, # TODO 新增衣服的mask
             "prompt":caption
         }
         return result
